@@ -19,7 +19,7 @@ let credentialVersion = 0;
 let credentialWrites: Promise<unknown> = Promise.resolve();
 let refreshPending: { version: number; promise: Promise<string | null> } | null = null;
 let pendingLink: string | null = process.argv.find(v => v.startsWith('ctrue:')) || null;
-const releasesPage = 'https://github.com/monishpatalay/ctrue-downloads/releases/latest';
+const releasesPage = 'https://github.com/monishpatalay/ctrue/releases/latest';
 // Builds signed with the same certificate update themselves; any other build only gets a download link.
 const updateFeed = process.env.CTRUE_UPDATE_FEED_URL;
 const autoUpdate = app.isPackaged && process.env.CTRUE_SIGNED_RELEASE === 'true' && !!updateFeed && /^(https:\/\/|http:\/\/127\.0\.0\.1[:/])/.test(updateFeed);
@@ -30,7 +30,7 @@ async function checkForUpdates(): Promise<string | null> {
 }
 async function checkForNewRelease(): Promise<string | null> {
   try {
-    const response = await fetch('https://api.github.com/repos/monishpatalay/ctrue-downloads/releases/latest', { headers: { Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(10000) });
+    const response = await fetch('https://api.github.com/repos/monishpatalay/ctrue/releases/latest', { headers: { Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(10000) });
     if (!response.ok) return null;
     const { tag_name: tag } = await response.json() as { tag_name?: unknown };
     if (typeof tag !== 'string' || !/^v?\d+(\.\d+)*$/.test(tag) || !isNewerVersion(tag, app.getVersion())) return null;
