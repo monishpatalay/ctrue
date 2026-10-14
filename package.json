@@ -1,0 +1,29 @@
+{
+  "name": "ctrue",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:demo": "node scripts/dev.mjs --demo",
+    "dev:web": "npm run dev -w @ctrue/web",
+    "dev:api": "npm run dev -w @ctrue/api",
+    "dev:desktop": "npm run dev -w @ctrue/desktop",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present && node --test scripts/dev.test.mjs",
+    "test:database": "node scripts/test-database.mjs",
+    "test:smoke": "node scripts/smoke.mjs",
+    "package:mac": "npm run package:mac -w @ctrue/desktop",
+    "package:win": "npm run package:win -w @ctrue/desktop"
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "dependencies": {
+    "@neon/config": "^1.9.1",
+    "@neon/env": "^1.6.1"
+  }
+}

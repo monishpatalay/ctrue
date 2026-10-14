@@ -1,0 +1,17 @@
+# Upload only what the website build needs. The Vercel CLI does not read .gitignore.
+/*
+!/package.json
+!/package-lock.json
+!/apps
+/apps/*/node_modules
+/apps/desktop/release
+/apps/desktop/dist
+/apps/desktop/dist-electron
+/apps/desktop/build
+/apps/web/.next
+/apps/web/tsconfig.tsbuildinfo
+/apps/api/dist
+# Never upload secrets.
+**/.env
+**/.env.*
+!**/.env.example

@@ -1,0 +1,10 @@
+import { contextBridge, ipcRenderer } from 'electron';
+contextBridge.exposeInMainWorld('ctrue', {
+  config: () => ipcRenderer.invoke('ctrue:config'), credentials: () => ipcRenderer.invoke('ctrue:credentials'), refresh: () => ipcRenderer.invoke('ctrue:refresh'), signout: () => ipcRenderer.invoke('ctrue:signout'),
+  currentScreen: () => ipcRenderer.invoke('ctrue:current-screen'), selectSource: (id: string) => ipcRenderer.invoke('ctrue:select-source', id), protect: (enabled: boolean) => ipcRenderer.invoke('ctrue:protect', enabled), shortcuts: (value: unknown) => ipcRenderer.invoke('ctrue:shortcuts', value), recording: (on: boolean) => ipcRenderer.invoke('ctrue:recording', on),
+  popupState: (value: unknown) => ipcRenderer.invoke('ctrue:popup-state', value), popupAsk: (text: string) => ipcRenderer.invoke('ctrue:popup-ask', text), popupHide: () => ipcRenderer.invoke('ctrue:popup-hide'),
+  openaiKey: () => ipcRenderer.invoke('ctrue:openai-key'), setOpenaiKey: (value: string | null) => ipcRenderer.invoke('ctrue:set-openai-key', value),
+  permissions: () => ipcRenderer.invoke('ctrue:permissions'), requestPermission: (kind: 'screen' | 'microphone') => ipcRenderer.invoke('ctrue:request-permission', kind), relaunch: () => ipcRenderer.invoke('ctrue:relaunch'),
+  minimize: () => ipcRenderer.invoke('ctrue:minimize'), maximize: () => ipcRenderer.invoke('ctrue:maximize'), quit: () => ipcRenderer.invoke('ctrue:quit'), openLogin: () => ipcRenderer.invoke('ctrue:open-login'), openAccount: () => ipcRenderer.invoke('ctrue:open-account'), installUpdate: () => ipcRenderer.invoke('ctrue:install-update'),
+  onEvent: (callback: (event: { action: string; payload?: unknown }) => void) => { const listener = (_: Electron.IpcRendererEvent, value: { action: string; payload?: unknown }) => callback(value); ipcRenderer.on('ctrue:event', listener); return () => ipcRenderer.removeListener('ctrue:event', listener); }
+});

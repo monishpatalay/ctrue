@@ -1,0 +1,31 @@
+/* The pop-up window itself is transparent; only this panel paints, at partial opacity. */
+html.popup-root, html.popup-root body, html.popup-root #root { background: transparent; height: 100%; margin: 0; overflow: hidden; }
+.popup { --glass: rgba(16, 19, 17, 0.72); height: 100%; box-sizing: border-box; display: flex; flex-direction: column; background: var(--glass); border: 1px solid rgba(196, 239, 120, 0.3); border-radius: 14px; color: #ecf0e9; overflow: hidden; font-size: 13px; }
+.popup-bar { display: flex; align-items: center; gap: 8px; padding: 9px 10px 9px 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); -webkit-app-region: drag; }
+.popup-bar button { -webkit-app-region: no-drag; background: rgba(255, 255, 255, 0.08); color: inherit; border: 0; border-radius: 7px; padding: 4px 9px; font: inherit; font-size: 11px; cursor: pointer; }
+.popup-bar button:hover, .popup-follow button:hover:not(:disabled) { background: rgba(196, 239, 120, 0.22); }
+.popup-bar button:focus-visible, .popup-follow :focus-visible { outline: 2px solid var(--lime); outline-offset: 1px; }
+.popup-status { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.popup-status.listening, .popup-status.thinking { color: var(--lime); }
+.popup-hint { flex: 1; font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+.popup-body { flex: 1; overflow: auto; padding: 12px 14px; }
+.popup-body p { margin: 0 0 10px; line-height: 1.5; }
+.popup-question { color: var(--lime); font-weight: 600; }
+.popup-heard, .popup-empty { color: var(--muted); }
+.popup-error { color: #ff9c8a; }
+.markdown { font-size: 13px; line-height: 1.55; color: #e9f1e3; overflow-wrap: anywhere; }
+.markdown > :first-child { margin-top: 0; }
+.markdown p { margin: 0 0 9px; }
+.markdown h4 { margin: 14px 0 6px; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--lime); }
+.markdown ul, .markdown ol { margin: 0 0 10px; padding-left: 20px; }
+.markdown li { margin: 0 0 5px; }
+.markdown strong { color: #fff; font-weight: 600; }
+.markdown code { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: rgba(255, 255, 255, 0.1); border-radius: 4px; padding: 1px 5px; }
+.markdown pre { margin: 0 0 10px; padding: 10px 12px; background: rgba(0, 0, 0, 0.45); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; overflow-x: auto; }
+.markdown pre code { background: none; padding: 0; white-space: pre; }
+.markdown hr { border: 0; border-top: 1px solid rgba(255, 255, 255, 0.12); margin: 12px 0; }
+.popup-follow { display: flex; gap: 8px; padding: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+.popup-follow input { flex: 1; min-width: 0; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 8px; color: inherit; padding: 8px 10px; font: inherit; }
+.popup-follow button { background: var(--lime); color: #1b2915; border: 0; border-radius: 8px; padding: 0 14px; font: inherit; font-weight: 600; cursor: pointer; }
+.popup-follow button:disabled { opacity: 0.45; cursor: default; }
+.popup-shots { color: var(--lime); font-size: 12px; }

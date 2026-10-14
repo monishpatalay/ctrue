@@ -1,0 +1,4 @@
+import Link from 'next/link';
+export function Brand() { return <Link className="brand" href="/" aria-label="Ctrue home"><span className="brand-mark" aria-hidden="true">c<span>↗</span></span>ctrue<span className="brand-dot">.</span></Link>; }
+export function Nav() { return <header className="site-nav wrap"><Brand /><nav aria-label="Main navigation"><Link href="/#how-it-works">How it works</Link><Link href="/downloads">Desktop app</Link></nav><Link href="/dashboard" className="button small">Open workspace <span aria-hidden="true">↗</span></Link></header>; }
+export function Footer() { return <footer className="wrap site-footer"><Brand /><span>Clarity, in the moment.</span><div><Link href="/downloads">Downloads</Link><Link href="/login">Account</Link><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link></div></footer>; }
