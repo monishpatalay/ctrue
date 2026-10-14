@@ -20,7 +20,14 @@ let credentialWrites: Promise<unknown> = Promise.resolve();
 let refreshPending: { version: number; promise: Promise<string | null> } | null = null;
 let pendingLink: string | null = process.argv.find(v => v.startsWith('ctrue:')) || null;
 const releasesPage = 'https://github.com/monishpatalay/ctrue-downloads/releases/latest';
-// ponytail: notify-only; real auto-install needs an Apple Developer ID signature (electron-updater block below).
+// Builds signed with the same certificate update themselves; any other build only gets a download link.
+const updateFeed = process.env.CTRUE_UPDATE_FEED_URL;
+const autoUpdate = app.isPackaged && process.env.CTRUE_SIGNED_RELEASE === 'true' && !!updateFeed && /^(https:\/\/|http:\/\/127\.0\.0\.1[:/])/.test(updateFeed);
+async function checkForUpdates(): Promise<string | null> {
+  if (!autoUpdate) return checkForNewRelease();
+  try { const result = await autoUpdater.checkForUpdates(); return result?.isUpdateAvailable ? result.updateInfo.version : null; }
+  catch (error) { console.warn('Update check failed:', error instanceof Error ? error.message : error); return null; }
+}
 async function checkForNewRelease(): Promise<string | null> {
   try {
     const response = await fetch('https://api.github.com/repos/monishpatalay/ctrue-downloads/releases/latest', { headers: { Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(10000) });
@@ -153,7 +160,7 @@ else {
         callback({ video: source, audio: 'loopback' });
       } catch { callback({}); }
     });
-    ipc('ctrue:config', () => ({ api, website, version: app.getVersion(), packaged: app.isPackaged, platform: process.platform, secureStorage: safeStorage.isEncryptionAvailable(), shortcuts, updateEnabled: Boolean(app.isPackaged && process.env.CTRUE_SIGNED_RELEASE === 'true' && process.env.CTRUE_UPDATE_FEED_URL) }));
+    ipc('ctrue:config', () => ({ api, website, version: app.getVersion(), packaged: app.isPackaged, platform: process.platform, secureStorage: safeStorage.isEncryptionAvailable(), shortcuts, updateEnabled: autoUpdate }));
     ipc('ctrue:credentials', async () => {
       if (tokenPair) return tokenPair.accessToken;
       try {
@@ -228,7 +235,9 @@ else {
     ipc('ctrue:open-account', () => shell.openExternal(`${website}/dashboard`));
     ipc('ctrue:open-login', () => shell.openExternal(`${website}/login?desktop=1`));
     ipc('ctrue:open-download', () => shell.openExternal(releasesPage));
-    ipc('ctrue:check-update', checkForNewRelease);
+    ipc('ctrue:check-update', checkForUpdates);
+    // Windows only close when quitting is set, so it must be set before the updater quits the app.
+    ipc('ctrue:install-update', () => { if (!autoUpdate) throw new Error('This build cannot install updates itself.'); quitting = true; autoUpdater.quitAndInstall(); });
     try { shortcuts = validateShortcuts(JSON.parse(await readFile(settingsPath(), 'utf8')).shortcuts); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') console.warn('Saved shortcuts could not be loaded:', error); }
     const failures = registerShortcuts(shortcuts);
     tray = new Tray(nativeImage.createFromPath(path.join(app.getAppPath(), 'build/tray.png')).resize({ width: 18, height: 18 }));
@@ -238,15 +247,14 @@ else {
     window.show();
     if (failures.length) emit('error', `Shortcut registration failed: ${failures.join(', ')}`);
     if (pendingLink) { await handleLink(pendingLink); pendingLink = null; }
-    if (app.isPackaged) void checkForNewRelease();
-    if (app.isPackaged && process.env.CTRUE_SIGNED_RELEASE === 'true' && process.env.CTRUE_UPDATE_FEED_URL) {
-      const feed = new URL(process.env.CTRUE_UPDATE_FEED_URL);
-      if (feed.protocol !== 'https:') { emit('error', 'Update feed requires HTTPS.'); return; }
-      autoUpdater.setFeedURL({ provider: 'generic', url: feed.href });
-      autoUpdater.on('error', error => emit('error', `Update failed: ${error.message}`));
-      autoUpdater.on('update-downloaded', () => emit('update-ready'));
-      ipc('ctrue:install-update', () => autoUpdater.quitAndInstall());
-      void autoUpdater.checkForUpdatesAndNotify().catch(error => emit('error', error.message));
+    if (autoUpdate) {
+      autoUpdater.setFeedURL({ provider: 'generic', url: updateFeed! });
+      autoUpdater.disableDifferentialDownload = true;
+      // If installing in place fails, fall back to the download link so users are never stuck.
+      autoUpdater.on('error', error => { console.warn('Update failed:', error.message); emit('update-fallback'); });
+      autoUpdater.on('update-available', info => emit('update-available', info.version));
+      autoUpdater.on('update-downloaded', info => emit('update-ready', info.version));
     }
+    if (app.isPackaged) { void checkForUpdates(); setInterval(() => void checkForUpdates(), 6 * 60 * 60 * 1000); }
   }).catch(error => { console.error(error); app.quit(); });
 }

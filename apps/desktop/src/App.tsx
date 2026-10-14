@@ -74,6 +74,7 @@ export function App() {
   const [shortcutDraft, setShortcutDraft] = useState(defaultConfig.shortcuts);
   const [updateReady, setUpdateReady] = useState(false);
   const [newVersion, setNewVersion] = useState('');
+  const [updateFallback, setUpdateFallback] = useState(false);
   const [steps, setSteps] = useState<WalkStep[]>([]);
   const [stepIndex, setStepIndex] = useState(0);
   const [topic, setTopic] = useState<Topic>(() => stored('ctrue.topic') === 'system-design' ? 'system-design' : 'coding');
@@ -151,8 +152,9 @@ export function App() {
     const unsubscribe = window.ctrue?.onEvent(event => {
       if (event.action === 'auth') { authenticate((event.payload as { accessToken: string }).accessToken); setDemo(false); setNotice('Signed in securely.'); }
       else if (event.action === 'error') setError(String(event.payload));
-      else if (event.action === 'update-ready') setUpdateReady(true);
+      else if (event.action === 'update-ready') { setUpdateReady(true); setNewVersion(String(event.payload || '')); }
       else if (event.action === 'update-available') setNewVersion(String(event.payload));
+      else if (event.action === 'update-fallback') { setUpdateFallback(true); setUpdateReady(false); }
       else actions.current[event.action]?.(event.payload);
     });
     return () => { disposed = true; unsubscribe?.(); void stopCapture(); abortRef.current?.abort(); };
@@ -434,7 +436,7 @@ export function App() {
       <aside className="sidebar"><div className="eyebrow sidebar-label">WORKSPACE</div><nav aria-label="Workspace navigation">{[{ id: 'session', label: 'Live assistant', icon: '◈' }, { id: 'profile', label: 'My profile', icon: '◉' }, { id: 'settings', label: 'Preferences', icon: '⚙' }].map(item => <button key={item.id} className={`nav-item ${tab === item.id ? 'selected' : ''}`} onClick={() => setTab(item.id as typeof tab)}><span>{item.icon}</span>{item.label}{item.id === 'session' && <span className="nav-dot" />}</button>)}</nav><div className="sidebar-bottom"><div className="credit-card"><div className="eyebrow">CTRUE</div><strong className="unlimited">Free</strong><span className="muted">{account?.plan === 'owner' ? 'Owner · uses the Ctrue key' : 'Open source · uses your own OpenAI key'}</span></div><div className="account-line"><span className="avatar">{token ? (account?.email?.[0] || '•').toUpperCase() : '?'}</span><div><strong>{demo ? 'Demo workspace' : account?.email?.split('@')[0] || (token ? 'Your workspace' : 'Guest workspace')}</strong><span>{demo ? 'Simulated · local only' : token ? 'Securely connected' : 'Connect your account'}</span></div></div></div></aside>
       <main>
         {error && <div className="alert error" role="alert"><span>!</span><div>{error}</div><button aria-label="Dismiss error" onClick={() => setError('')}>×</button></div>}
-        {newVersion && <div className="alert notice" role="status"><div>Ctrue {newVersion} is available. Download it, then drag it into Applications to replace this version.</div><button className="primary" onClick={() => void window.ctrue?.openDownload()}>Download</button><button aria-label="Dismiss update notice" onClick={() => setNewVersion("")}>×</button></div>}
+        {newVersion && <div className="alert notice" role="status"><div>{updateReady ? `Ctrue ${newVersion} is ready. Restart to finish updating.` : config.updateEnabled && !updateFallback ? `Downloading Ctrue ${newVersion} in the background…` : `Ctrue ${newVersion} is available. Download it, then drag it into Applications to replace this version.`}</div>{updateReady ? <button className="primary" onClick={() => void run(async () => { await window.ctrue!.installUpdate(); })}>Restart to update</button> : (!config.updateEnabled || updateFallback) && <button className="primary" onClick={() => void window.ctrue?.openDownload()}>Download</button>}<button aria-label="Dismiss update notice" onClick={() => setNewVersion("")}>×</button></div>}
         {notice && <div className="alert notice" role="status"><div>{notice}</div><button aria-label="Dismiss notice" onClick={() => setNotice('')}>×</button></div>}
         {tab === 'session' && <>
           <div className="page-heading"><div><div className="eyebrow">THINK CLEARLY. BUILD CONFIDENTLY.</div><h1>Your second perspective<span>.</span></h1><p>Turn a question into your next clear step.</p></div><span className="session-clock"><span className="clock-icon">◷</span>{formatTime(session?.elapsedSeconds || 0)}</span></div>

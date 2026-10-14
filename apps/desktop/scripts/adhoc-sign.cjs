@@ -8,6 +8,7 @@ const path = require('node:path');
 exports.default = async function adhocSign(context) {
   if (context.electronPlatformName !== 'darwin' || process.env.CSC_LINK || process.env.CSC_NAME) return;
   const app = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`);
-  execFileSync('codesign', ['--force', '--deep', '--sign', '-', app], { stdio: 'inherit' });
+  // A named certificate keeps the same identity on every build, so permissions and updates carry over; '-' is ad hoc.
+  execFileSync('codesign', ['--force', '--deep', '--sign', process.env.CTRUE_SIGN_IDENTITY || '-', app], { stdio: 'inherit' });
   execFileSync('codesign', ['--verify', '--deep', '--strict', app], { stdio: 'inherit' });
 };
