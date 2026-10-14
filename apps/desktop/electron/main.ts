@@ -2,7 +2,7 @@ import { app, BrowserWindow, desktopCapturer, globalShortcut, ipcMain, Menu, nat
 import { readFile, writeFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { autoUpdater } from 'electron-updater';
-import { defaultShortcuts, parseHandoff, trustedService, validateShortcuts, type Action } from './security';
+import { defaultShortcuts, isNewerVersion, parseHandoff, trustedService, validateShortcuts, type Action } from './security';
 
 const api = trustedService(process.env.CTRUE_API_URL || 'http://localhost:4318');
 const website = trustedService(process.env.CTRUE_WEBSITE_URL || 'http://localhost:3000');
@@ -19,6 +19,18 @@ let credentialVersion = 0;
 let credentialWrites: Promise<unknown> = Promise.resolve();
 let refreshPending: { version: number; promise: Promise<string | null> } | null = null;
 let pendingLink: string | null = process.argv.find(v => v.startsWith('ctrue:')) || null;
+const releasesPage = 'https://github.com/monishpatalay/ctrue-downloads/releases/latest';
+// ponytail: notify-only; real auto-install needs an Apple Developer ID signature (electron-updater block below).
+async function checkForNewRelease(): Promise<string | null> {
+  try {
+    const response = await fetch('https://api.github.com/repos/monishpatalay/ctrue-downloads/releases/latest', { headers: { Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(10000) });
+    if (!response.ok) return null;
+    const { tag_name: tag } = await response.json() as { tag_name?: unknown };
+    if (typeof tag !== 'string' || !/^v?\d+(\.\d+)*$/.test(tag) || !isNewerVersion(tag, app.getVersion())) return null;
+    emit('update-available', tag.replace(/^v/, ''));
+    return tag.replace(/^v/, '');
+  } catch { return null; }
+}
 const tokensPath = () => path.join(app.getPath('userData'), 'credentials.enc');
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 const openaiKeyPath = () => path.join(app.getPath('userData'), 'openai-key.enc');
@@ -141,7 +153,7 @@ else {
         callback({ video: source, audio: 'loopback' });
       } catch { callback({}); }
     });
-    ipc('ctrue:config', () => ({ api, website, packaged: app.isPackaged, platform: process.platform, secureStorage: safeStorage.isEncryptionAvailable(), shortcuts, updateEnabled: Boolean(app.isPackaged && process.env.CTRUE_SIGNED_RELEASE === 'true' && process.env.CTRUE_UPDATE_FEED_URL) }));
+    ipc('ctrue:config', () => ({ api, website, version: app.getVersion(), packaged: app.isPackaged, platform: process.platform, secureStorage: safeStorage.isEncryptionAvailable(), shortcuts, updateEnabled: Boolean(app.isPackaged && process.env.CTRUE_SIGNED_RELEASE === 'true' && process.env.CTRUE_UPDATE_FEED_URL) }));
     ipc('ctrue:credentials', async () => {
       if (tokenPair) return tokenPair.accessToken;
       try {
@@ -214,6 +226,8 @@ else {
     ipc('ctrue:quit', () => app.quit());
     ipc('ctrue:open-account', () => shell.openExternal(`${website}/dashboard`));
     ipc('ctrue:open-login', () => shell.openExternal(`${website}/login?desktop=1`));
+    ipc('ctrue:open-download', () => shell.openExternal(releasesPage));
+    ipc('ctrue:check-update', checkForNewRelease);
     try { shortcuts = validateShortcuts(JSON.parse(await readFile(settingsPath(), 'utf8')).shortcuts); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') console.warn('Saved shortcuts could not be loaded:', error); }
     const failures = registerShortcuts(shortcuts);
     tray = new Tray(nativeImage.createFromPath(path.join(app.getAppPath(), 'build/tray.png')).resize({ width: 18, height: 18 }));
@@ -223,6 +237,7 @@ else {
     window.show();
     if (failures.length) emit('error', `Shortcut registration failed: ${failures.join(', ')}`);
     if (pendingLink) { await handleLink(pendingLink); pendingLink = null; }
+    if (app.isPackaged) void checkForNewRelease();
     if (app.isPackaged && process.env.CTRUE_SIGNED_RELEASE === 'true' && process.env.CTRUE_UPDATE_FEED_URL) {
       const feed = new URL(process.env.CTRUE_UPDATE_FEED_URL);
       if (feed.protocol !== 'https:') { emit('error', 'Update feed requires HTTPS.'); return; }

@@ -1,6 +1,6 @@
 export type Session = { id: string; status: 'active' | 'paused' | 'ended'; remainingSeconds: number; elapsedSeconds: number };
 export type Source = { id: string; name: string };
-export type Config = { api: string; website: string; platform: string; packaged: boolean; secureStorage: boolean; shortcuts: Record<string, string>; updateEnabled: boolean };
+export type Config = { api: string; version?: string; website: string; platform: string; packaged: boolean; secureStorage: boolean; shortcuts: Record<string, string>; updateEnabled: boolean };
 declare global {
   interface Window {
     ctrue?: {
@@ -9,7 +9,7 @@ declare global {
       popupState(value: { status: string; question: string; answer: string; heard: string; error: string; shots: number }): Promise<void>; popupAsk(text: string): Promise<void>; popupHide(): Promise<void>;
       openaiKey(): Promise<string | null>; setOpenaiKey(value: string | null): Promise<void>;
       permissions(): Promise<{ screen: string; microphone: string }>; requestPermission(kind: 'screen' | 'microphone'): Promise<void>; relaunch(): Promise<void>;
-      minimize(): Promise<void>; maximize(): Promise<void>; quit(): Promise<void>; openLogin(): Promise<void>; openAccount(): Promise<void>; installUpdate(): Promise<void>;
+      minimize(): Promise<void>; maximize(): Promise<void>; quit(): Promise<void>; openLogin(): Promise<void>; openAccount(): Promise<void>; installUpdate(): Promise<void>; openDownload(): Promise<void>; checkUpdate(): Promise<string | null>;
       onEvent(callback: (event: { action: string; payload?: unknown }) => void): () => void;
     };
   }

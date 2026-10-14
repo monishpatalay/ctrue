@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { defaultShortcuts, parseHandoff, trustedService, validateShortcuts } from '../electron/security';
+import { defaultShortcuts, isNewerVersion, parseHandoff, trustedService, validateShortcuts } from '../electron/security';
 import { acceleratorFrom, heardSince, parseMarkdown, prettyShortcut, readEvents, recentSpeech, updateTranscript } from '../src/api';
 import { encodePCM16 } from '../public/pcm-worklet.js';
 
@@ -85,4 +85,12 @@ test('settings saved before the add-screenshot shortcut still load, and its key 
   const { collect, ...older } = defaultShortcuts;
   assert.equal(validateShortcuts(older).collect, collect);
   assert.throws(() => validateShortcuts({ ...older, hide: collect }));
+});
+
+test('isNewerVersion compares release tags numerically', () => {
+  assert.equal(isNewerVersion('v0.1.4', '0.1.3'), true);
+  assert.equal(isNewerVersion('v0.1.10', '0.1.9'), true);
+  assert.equal(isNewerVersion('v0.1.3', '0.1.3'), false);
+  assert.equal(isNewerVersion('v0.1.2', '0.1.3'), false);
+  assert.equal(isNewerVersion('v1.0', '0.9.9'), true);
 });
