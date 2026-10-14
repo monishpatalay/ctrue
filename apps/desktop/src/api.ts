@@ -1,4 +1,4 @@
-export async function readEvents(response: Response, receive: (event: string, value: { text?: string; error?: string }) => void) {
+export async function readEvents(response: Response, receive: (event: string, value: { text?: string; error?: string; [key: string]: unknown }) => void) {
   const reader = response.body?.getReader();
   if (!reader) throw new Error('Streaming response is unavailable.');
   const decoder = new TextDecoder();

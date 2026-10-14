@@ -29,3 +29,14 @@ html.popup-root, html.popup-root body, html.popup-root #root { background: trans
 .popup-follow button { background: var(--lime); color: #1b2915; border: 0; border-radius: 8px; padding: 0 14px; font: inherit; font-weight: 600; cursor: pointer; }
 .popup-follow button:disabled { opacity: 0.45; cursor: default; }
 .popup-shots { color: var(--lime); font-size: 12px; }
+.popup-walk-meta { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--lime); }
+.popup-walk-say { font-size: 14px; line-height: 1.55; }
+.popup-walk-label { font-size: 10px; color: var(--muted); margin-bottom: 4px !important; }
+.popup-walk pre { margin: 0 0 10px; padding: 9px 11px; background: rgba(0, 0, 0, 0.5); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; overflow-x: auto; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.popup-walk pre.popup-walk-old { color: #e3a89e; text-decoration: line-through; }
+.popup-walk-why { color: #c9d4c0; font-size: 12px; }
+.popup-walk-nav { display: flex; gap: 8px; padding: 8px 10px 0; }
+.popup-walk-nav button { flex: 1; background: rgba(255, 255, 255, 0.08); color: inherit; border: 0; border-radius: 7px; padding: 6px 9px; font: inherit; font-size: 12px; cursor: pointer; }
+.popup-walk-nav button:hover:not(:disabled) { background: rgba(196, 239, 120, 0.22); }
+.popup-walk-nav button:disabled { opacity: 0.4; cursor: default; }
+.popup-walk-nav button:focus-visible { outline: 2px solid var(--lime); outline-offset: 1px; }

@@ -1,4 +1,4 @@
-export const defaultShortcuts = { capture: 'CommandOrControl+L', screenshot: 'CommandOrControl+J', collect: 'CommandOrControl+Shift+J', answer: 'CommandOrControl+Enter', hide: 'CommandOrControl+H' };
+export const defaultShortcuts = { capture: 'CommandOrControl+L', screenshot: 'CommandOrControl+J', collect: 'CommandOrControl+Shift+J', answer: 'CommandOrControl+Enter', hide: 'CommandOrControl+H', next: 'Alt+Shift+N', previous: 'Alt+Shift+B' };
 export type Action = keyof typeof defaultShortcuts;
 export function parseHandoff(value: unknown): string {
   if (typeof value !== 'string' || value.length > 512) throw new Error('Invalid login link.');

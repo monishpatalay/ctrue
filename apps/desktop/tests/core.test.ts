@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { defaultShortcuts, isNewerVersion, parseHandoff, trustedService, validateShortcuts } from '../electron/security';
 import { acceleratorFrom, heardSince, parseMarkdown, prettyShortcut, readEvents, recentSpeech, updateTranscript } from '../src/api';
 import { encodePCM16 } from '../public/pcm-worklet.js';
+import { buildCode, resumeContext, stepsMatchFinal, type WalkStep } from '../src/steps';
 
 test('credentials handoff allows only the expected protocol, host and bounded code', () => {
   const code = 'a'.repeat(43);
@@ -93,4 +94,24 @@ test('isNewerVersion compares release tags numerically', () => {
   assert.equal(isNewerVersion('v0.1.3', '0.1.3'), false);
   assert.equal(isNewerVersion('v0.1.2', '0.1.3'), false);
   assert.equal(isNewerVersion('v1.0', '0.9.9'), true);
+});
+
+test('replaying walkthrough steps rebuilds the final code, including replacements', () => {
+  const step = (code: string, action: 'add' | 'replace' = 'add', replaces: string | null = null, phase: WalkStep['phase'] = 'optimal'): WalkStep => ({ kind: 'step', phase, title: code.slice(0, 12), say: 'x', code, action, replaces, why: null, breaks: null, details: null });
+  const steps: WalkStep[] = [
+    step('for i in range(n):\n    pass', 'add', null, 'brute'),
+    step('def solve(nums):\n    seen = set()'),
+    step('    for n in nums:\n        pass'),
+    step('        if n in seen:\n            return True\n        seen.add(n)', 'replace', '        pass'),
+    step('    return False'),
+    { kind: 'final', phase: 'optimal', title: 'Final', say: 'Done.', code: 'def solve(nums):\n    seen = set()\n    for n in nums:   \n        if n in seen:\n            return True\n        seen.add(n)\n    return False\n', action: 'none', replaces: null, why: null, breaks: null, details: null }
+  ];
+  assert.equal(buildCode(steps).code, 'def solve(nums):\n    seen = set()\n    for n in nums:\n        if n in seen:\n            return True\n        seen.add(n)\n    return False');
+  assert.equal(stepsMatchFinal(steps), true);
+  assert.equal(stepsMatchFinal([...steps.slice(0, 5), { ...steps[5], code: 'def solve(nums):\n    return False' }]), false);
+  assert.deepEqual(buildCode([step('a'), step('b', 'replace', 'zzz')]).missing, ['b']);
+  assert.equal(buildCode([step('fresh', 'replace', 'old brute force'), step('more')]).code, 'fresh\nmore', 'a first optimized step that replaces the brute force starts the file');
+  assert.equal(stepsMatchFinal(steps.slice(0, 4)), null, 'no verdict before the final step arrives');
+  assert.match(resumeContext(steps.slice(0, 2)), /^Steps already delivered/);
+  assert.equal(resumeContext([]), '');
 });

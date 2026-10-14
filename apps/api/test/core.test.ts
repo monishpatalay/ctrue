@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {deflateRawSync} from 'node:zlib';
-import {AudioBudget,AudioTurns,DemoStore,Handoffs,docxSize,imageData,openaiKey,prompt,uuid} from '../src/core.js';
+import {AudioBudget,AudioTurns,DemoStore,Handoffs,StepScanner,docxSize,imageData,openaiKey,prompt,toWalkStep,uuid,walkPrompt} from '../src/core.js';
 test('lease expiry caps disconnected charges; pause/resume/end are idempotent',()=>{
   let now=0;const store=new DemoStore(()=>now),first=store.action(null,'start');
   assert.equal(store.action(null,'start').id,first.id);
@@ -63,4 +63,26 @@ test('audio byte budget allows realtime with jitter but rejects accelerated audi
 test('a user OpenAI key must look like one before it is used', () => {
   assert.equal(openaiKey('  sk-proj-abcdefghijklmnopqrstuvwxyz0123  '), 'sk-proj-abcdefghijklmnopqrstuvwxyz0123');
   for (const bad of ['', 'not-a-key', 'sk-short', 'sk-has spaces in it and more', 'Bearer sk-abcdefghijklmnopqrstuvwxyz']) assert.throws(() => openaiKey(bad));
+});
+test('walkthrough steps are emitted only when complete, even with braces in code and arbitrary chunking',()=>{
+  const step=(title:string,code:string|null)=>({kind:'step',phase:'optimal',title,say:'I add this.',code,action:'add',replaces:null,why:null,breaks:null,details:null});
+  const json=JSON.stringify({steps:[step('Loop','for (int i = 0; i < n; i++) { if (s.charAt(i) == \'}\') print("{\\"x\\"}"); }'),step('Return',null)]});
+  for(const size of [1,3,7,json.length]){
+    const scanner=new StepScanner(),found:unknown[]=[];
+    for(let i=0;i<json.length;i+=size)found.push(...scanner.push(json.slice(i,i+size)));
+    assert.deepEqual(found,JSON.parse(json).steps,`chunk size ${size}`);
+  }
+  const partial=new StepScanner();
+  assert.deepEqual(partial.push(JSON.stringify({steps:[step('Done',null)]}).slice(0,-30)),[],'an unfinished step is never emitted');
+});
+test('walkthrough steps are validated and the prompt treats the problem as data',()=>{
+  const ok={kind:'final',phase:'optimal',title:'Final',say:'Here it is.',code:'x',action:'none',replaces:null,why:null,breaks:null,details:'O(n)'};
+  assert.deepEqual(toWalkStep(ok),ok);
+  assert.equal(toWalkStep({...ok,kind:'html'}),null);
+  assert.equal(toWalkStep({...ok,say:''}),null);
+  assert.equal(toWalkStep({...ok,code:42}),null);
+  assert.equal(toWalkStep({...ok,extra:'<script>'})?.hasOwnProperty('extra'),false);
+  assert.match(walkPrompt('coding','Python'),/untrusted data/);
+  assert.match(walkPrompt('coding','Go'),/Language: Go/);
+  assert.match(walkPrompt('system-design',''),/breaks = what goes wrong later without it/);
 });

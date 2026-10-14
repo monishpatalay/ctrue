@@ -11,7 +11,7 @@ import OpenAI from 'openai';
 import Stripe from 'stripe';
 import pdf from 'pdf-parse/lib/pdf-parse.js';
 import mammoth from 'mammoth';
-import { AudioBudget, AudioTurns, DemoStore, Handoffs, HttpError, docxSize, imageData, openaiKey, prompt, sha256, string, uuid, type Session } from './core.js';
+import { AudioBudget, AudioTurns, DemoStore, Handoffs, HttpError, LANGUAGES, StepScanner, WALK_SCHEMA, docxSize, imageData, openaiKey, prompt, sha256, string, toWalkStep, uuid, walkPrompt, type Session } from './core.js';
 
 // apps/api/.env wins; the repo-root .env.local is where `neon deploy` and `neon env pull` write DATABASE_URL.
 dotenv.config({path:['.env','../../.env.local'],quiet:true});
@@ -212,7 +212,9 @@ app.post('/answers',async(req,res,next)=>{
   const u=user(req);let check:ReturnType<typeof setInterval>|undefined,ownsAnswer=false;const abort=new AbortController();
   try {
     rate(`answers:${u.id}`,12);const id=uuid(req.body.sessionId),question=string(req.body.question,'question',16000),mode=string(req.body.mode,'mode',20);
-    if(!['technical','coding','behavioral','system-design'].includes(mode))throw new HttpError(400,'Invalid answer mode');
+    if(!['technical','coding','behavioral','system-design','walkthrough'].includes(mode))throw new HttpError(400,'Invalid answer mode');
+    const walk=mode==='walkthrough',topic=req.body.topic==='system-design'?'system-design':'coding',language=walk&&topic==='coding'?string(req.body.language,'language',20):'';
+    if(walk&&topic==='coding'&&!(LANGUAGES as readonly string[]).includes(language))throw new HttpError(400,'Unsupported language');
     // One screenshot (image) or several consecutive parts of the same page (images), at most four.
     const supplied:unknown[]=Array.isArray(req.body.images)?req.body.images:req.body.image===undefined?[]:[req.body.image];
     if(supplied.length>4)throw new HttpError(400,'At most four screenshots per question');
@@ -225,13 +227,15 @@ app.post('/answers',async(req,res,next)=>{
     res.setHeader('Content-Type','text/event-stream');res.setHeader('Cache-Control','no-cache');res.setHeader('X-Accel-Buffering','no');res.flushHeaders();
     const send=(event:string,data:unknown)=>{if(!res.destroyed)res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);};
     check=setInterval(()=>{void active(u.id,id).catch(()=>abort.abort());},1000);
-    if(demo)send('token',{text:`[DEMO — no AI request made] Practice ${mode} response. Question: ${question.slice(0,250)}. ${mode==='behavioral'?'Use your verified facts to describe Situation, Task, Action, and Result.':'Explain your approach, then cover tradeoffs and edge cases.'}`});
+    if(demo&&walk){for(const step of [{kind:'summary',phase:'none',title:'Demo walkthrough',say:'[DEMO, no AI request made] I will restate the problem, then build it step by step.',code:null,action:'none',replaces:null,why:null,breaks:null,details:'- Ask about input size\n- Brute force first, then optimize'},{kind:'step',phase:topic==='coding'?'optimal':'design',title:'First piece',say:'I start with the simplest building block.',code:topic==='coding'?'def solve(nums):\n    return nums':'Client -> API server',action:'add',replaces:null,why:'Small steps keep the explanation easy to follow.',breaks:topic==='coding'?null:'Without an API layer, clients talk to storage directly.',details:null},{kind:'final',phase:topic==='coding'?'optimal':'design',title:'Final solution',say:'That gives the complete solution.',code:topic==='coding'?'def solve(nums):\n    return nums':'Client -> API server',action:'none',replaces:null,why:null,breaks:null,details:'**Time:** O(n) · **Space:** O(1)'}])send('step',step);}
+    else if(demo)send('token',{text:`[DEMO — no AI request made] Practice ${mode} response. Question: ${question.slice(0,250)}. ${mode==='behavioral'?'Use your verified facts to describe Situation, Task, Action, and Result.':'Explain your approach, then cover tradeoffs and edge cases.'}`});
     else {
-      const stream=await new OpenAI({apiKey:key}).responses.create({model:env.OPENAI_MODEL||'gpt-4.1-mini',instructions:prompt(mode,facts),input:[{role:'user',content:[{type:'input_text',text:`Recent context:\n${context}\nQuestion:\n${question}${pictures.length>1?`\n\nThe ${pictures.length} screenshots are consecutive parts of the same page, in order; read them together.`:''}\n\nReply in English only, even if the text above is in another language.`},...pictures.map(url=>({type:'input_image' as const,image_url:url,detail:'auto' as const}))]}],stream:true,max_output_tokens:2500,store:false},{signal:abort.signal});
+      const scanner=new StepScanner();
+      const stream=await new OpenAI({apiKey:key}).responses.create({model:env.OPENAI_MODEL||'gpt-4.1-mini',instructions:walk?walkPrompt(topic,language):prompt(mode,facts),...(walk?{text:{format:{type:'json_schema' as const,name:'walkthrough',schema:WALK_SCHEMA,strict:true}}}:{}),input:[{role:'user',content:[{type:'input_text',text:`Recent context:\n${context}\nQuestion:\n${question}${pictures.length>1?`\n\nThe ${pictures.length} screenshots are consecutive parts of the same page, in order; read them together.`:''}\n\nReply in English only, even if the text above is in another language.`},...pictures.map(url=>({type:'input_image' as const,image_url:url,detail:'auto' as const}))]}],stream:true,max_output_tokens:walk?8000:2500,store:false},{signal:abort.signal});
       let completed=false;
-      for await(const event of stream){if(event.type==='response.output_text.delta')send('token',{text:event.delta});else if(event.type==='response.completed')completed=true;
+      for await(const event of stream){if(event.type==='response.output_text.delta'){if(!walk)send('token',{text:event.delta});else for(const found of scanner.push(event.delta)){const step=toWalkStep(found);if(!step)throw new HttpError(502,'The AI returned a malformed step. Completed steps are kept; press Retry to continue.');send('step',step);}}else if(event.type==='response.completed')completed=true;
         // A length cut-off keeps what was written; anything else is reported with OpenAI's own reason.
-        else if(event.type==='response.incomplete'){const why=event.response.incomplete_details?.reason;if(why!=='max_output_tokens')throw new HttpError(502,`The AI stopped early (${why||'no reason given'})`);send('token',{text:'\n\n_(Answer cut off at the length limit. Ask a follow-up to continue.)_'});completed=true;}
+        else if(event.type==='response.incomplete'){const why=event.response.incomplete_details?.reason;if(why!=='max_output_tokens')throw new HttpError(502,`The AI stopped early (${why||'no reason given'})`);if(walk)throw new HttpError(502,'The walkthrough hit the length limit. Completed steps are kept; press Retry to continue.');send('token',{text:'\n\n_(Answer cut off at the length limit. Ask a follow-up to continue.)_'});completed=true;}
         else if(event.type==='response.failed')throw new HttpError(502,`The AI request failed: ${event.response.error?.message||'no reason given'}`);
         else if(event.type==='error')throw new HttpError(502,`The AI request failed: ${event.message||'no reason given'}`);}
       if(!completed)throw new HttpError(502,'The AI stream ended before the answer finished. Try again.');
