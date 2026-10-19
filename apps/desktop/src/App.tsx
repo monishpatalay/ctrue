@@ -411,8 +411,8 @@ export function App() {
   };
   // The pop-up is a second window that only displays what this one knows.
   useEffect(() => {
-    void window.ctrue?.popupState({ status: generating ? 'thinking' : captureStatus === 'live' ? 'listening' : captureStatus === 'connecting' ? 'connecting' : 'ready', question: activeQuestion.current, answer, heard: transcript.at(-1)?.text || '', error: mode === 'walkthrough' ? walkError || error : error, shots: shots.length, walk: mode === 'walkthrough' && steps[stepIndex] ? { step: steps[stepIndex], index: stepIndex, total: steps.length, more: walking, explanation: explainedIndex === stepIndex ? answer : '' } : null }).catch(() => {});
-  }, [answer, generating, captureStatus, transcript, error, shots.length, mode, steps, stepIndex, walking, walkError, explainedIndex]);
+    void window.ctrue?.popupState({ status: generating ? 'thinking' : captureStatus === 'live' ? 'listening' : captureStatus === 'connecting' ? 'connecting' : 'ready', question: activeQuestion.current, answer, heard: transcript.at(-1)?.text || '', error: mode === 'walkthrough' ? walkError || error : error, shots: shots.length, history: !generating && answers.at(-1)?.text === answer ? answers.slice(0, -1) : answers, walk: mode === 'walkthrough' && steps[stepIndex] ? { step: steps[stepIndex], index: stepIndex, total: steps.length, more: walking, explanation: explainedIndex === stepIndex ? answer : '' } : null }).catch(() => {});
+  }, [answer, answers, generating, captureStatus, transcript, error, shots.length, mode, steps, stepIndex, walking, walkError, explainedIndex]);
 
   const needsKey = !!token && !demo && !!account && account.plan !== 'owner' && !hasKey;
   function keyForm() {
@@ -422,7 +422,7 @@ export function App() {
     const response = await fetch(`${config.api}/health`);
     const health = await response.json();
     if (!response.ok || health.mode !== 'demo' || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(config.api).hostname)) throw new Error('Demo requires a loopback backend started with DEMO_MODE=true.');
-    authenticate('demo'); setDemo(true); setNotice('Local demo enabled. Responses and billing are simulated.');
+    authenticate('demo'); setDemo(true); setNotice('Local demo enabled. Responses are simulated.');
   }
   async function signout() {
     if (sessionRef.current?.status === 'active' || sessionRef.current?.status === 'paused') await controlSession('end');

@@ -6,8 +6,8 @@ const key = (value: string) => prettyShortcut(value).replaceAll(' ', '');
 import './popup.css';
 
 // The pop-up only displays what the main window sends it and passes follow-up questions back.
-type PopupState = { status: 'ready' | 'connecting' | 'listening' | 'thinking'; question: string; answer: string; heard: string; error: string; shots: number; walk: { step: WalkStep; index: number; total: number; more: boolean; explanation: string } | null };
-const initial: PopupState = { status: 'ready', question: '', answer: '', heard: '', error: '', shots: 0, walk: null };
+type PopupState = { status: 'ready' | 'connecting' | 'listening' | 'thinking'; question: string; answer: string; heard: string; error: string; shots: number; history: { question: string; text: string }[]; walk: { step: WalkStep; index: number; total: number; more: boolean; explanation: string } | null };
+const initial: PopupState = { status: 'ready', question: '', answer: '', heard: '', error: '', shots: 0, history: [], walk: null };
 const labels: Record<PopupState['status'], string> = { ready: 'Ready', connecting: 'Connecting…', listening: '● Listening', thinking: 'Thinking…' };
 
 export function Popup() {
@@ -39,6 +39,7 @@ export function Popup() {
     <div className="popup-body" ref={body} aria-live="polite">
       {state.error && <p className="popup-error" role="alert">{state.error}</p>}
       {state.shots > 0 && <p className="popup-shots" role="status">{state.shots} screenshot{state.shots > 1 ? 's' : ''} ready. Scroll and add more, or press the screenshot shortcut to answer with all of them.</p>}
+      {!walk && state.history.map((item, i) => <article className="popup-past" key={i}><p className="popup-question">{item.question}</p><div className="popup-answer markdown"><Markdown text={item.text} /></div></article>)}
       {walk ? <article className="popup-walk">
         <p className="popup-walk-meta">Step {walk.index + 1} of {walk.total}{walk.more ? ' · more coming…' : ''} · {walk.step.title}</p>
         <p className="popup-walk-say"><strong>Say:</strong> {walk.step.say}</p>
