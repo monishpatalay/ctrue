@@ -12,8 +12,16 @@ html.popup-root, html.popup-root body, html.popup-root #root { background: trans
 .popup-body p { margin: 0 0 10px; line-height: 1.5; }
 .popup-question { color: var(--lime); font-weight: 600; }
 .popup-past { padding-bottom: 10px; margin-bottom: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); opacity: 0.75; }
-.popup-heard, .popup-empty { color: var(--muted); }
+.popup-empty { color: var(--muted); }
+.popup-heard { color: #ecf0e9; border-left: 2px solid var(--lime); padding-left: 10px; }
+.popup-heard span { color: var(--lime); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
 .popup-error { color: #ff9c8a; }
+.popup-mic { margin: 0 0 12px; padding: 10px 12px; border: 1px solid rgba(255, 196, 120, 0.45); border-radius: 10px; background: rgba(255, 196, 120, 0.1); }
+.popup-mic p { margin: 0 0 8px; }
+.popup-mic div { display: flex; gap: 8px; }
+.popup-mic button { background: rgba(255, 255, 255, 0.1); color: inherit; border: 0; border-radius: 7px; padding: 5px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.popup-mic button:first-child { background: var(--lime); color: #1b2915; font-weight: 600; }
+.popup-mic button:focus-visible { outline: 2px solid var(--lime); outline-offset: 1px; }
 .markdown { font-size: 13px; line-height: 1.55; color: #e9f1e3; overflow-wrap: anywhere; }
 .markdown > :first-child { margin-top: 0; }
 .markdown p { margin: 0 0 9px; }

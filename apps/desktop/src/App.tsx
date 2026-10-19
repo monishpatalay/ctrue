@@ -4,7 +4,7 @@ import { acquireScreen, startAudio, type Capture } from './capture';
 import { Markdown } from './Markdown';
 import { Walkthrough } from './Walkthrough';
 import { LANGUAGES, resumeContext, type Topic, type WalkStep } from './steps';
-import { acceleratorFrom, formatTime, heardSince, prettyShortcut, readEvents, recentSpeech, updateTranscript, type Transcript } from './api';
+import { acceleratorFrom, formatTime, heardSince, isNewProblem, prettyShortcut, readEvents, recentSpeech, updateTranscript, type Transcript } from './api';
 
 const defaultConfig: Config = { api: import.meta.env.VITE_API_URL || 'http://localhost:4318', website: import.meta.env.VITE_WEBSITE_URL || 'http://localhost:3000', platform: 'browser', packaged: false, secureStorage: false, updateEnabled: false, shortcuts: { capture: 'CommandOrControl+L', screenshot: 'CommandOrControl+J', collect: 'CommandOrControl+Shift+J', answer: 'CommandOrControl+Enter', hide: 'CommandOrControl+H', next: 'Alt+Shift+N', previous: 'Alt+Shift+B' } };
 type Answer = { question: string; text: string };
@@ -98,6 +98,7 @@ export function App() {
   const sessionRef = useRef(session); sessionRef.current = session;
   const actions = useRef<Record<string, (payload?: unknown) => void>>({});
   const answeredId = useRef('');
+  const relisten = useRef(false);
   const inflight = useRef<Promise<void> | null>(null);
   const activeQuestion = useRef('');
   const streamSource = useRef<string | undefined>(undefined);
@@ -299,8 +300,8 @@ export function App() {
   }
   // A deliberate request (shortcut, button, follow-up) replaces an answer in progress; automatic ones wait their turn.
   async function generate(override?: string, shot?: string | string[], as: Mode = mode, preempt = true) {
-    // A walkthrough is started deliberately; speech picked up automatically never restarts one.
-    if (as === 'walkthrough' && !preempt) return;
+    // Speech picked up automatically can start a walkthrough, but never restarts one already on screen.
+    if (as === 'walkthrough' && !preempt && stepsRef.current.length) return;
     if (inflight.current) { if (!preempt) return; abortRef.current?.abort(); await inflight.current; }
     const task = as === 'walkthrough' ? walk(false, override, shot) : respond(override, shot, as);
     inflight.current = task;
@@ -331,12 +332,15 @@ export function App() {
     finally { setGenerating(false); abortRef.current = null; }
   }
   async function walk(resume: boolean, override?: string, shot?: string | string[]) {
+    let kind = topic;
     if (!resume) {
       const pictures = shot ? [shot].flat() : image ? [image] : [];
       const heard = transcript.filter(t => t.final).slice(-2).map(t => t.text).join(' ');
       const text = override ?? (question.trim() || (pictures.length ? 'Read the problem in the screenshot.' : heard));
       if (!text) { setWalkError('Add the problem first: type it, take a screenshot, or capture it being read out.'); return; }
       walkProblem.current = { text, pictures };
+      // ponytail: keyword match; a problem that says "system design" is planned as one whatever the toggle says.
+      if (/system design/i.test(text) && topic !== 'system-design') { kind = 'system-design'; setTopic('system-design'); }
       stepsRef.current = []; setSteps([]); setStepIndex(0); setExplainedIndex(-1);
     }
     const { text, pictures } = walkProblem.current;
@@ -347,7 +351,7 @@ export function App() {
       const current = await ensureSession();
       if (controller.signal.aborted) return;
       const ownKey = await window.ctrue?.openaiKey();
-      const response = await request('/answers', { method: 'POST', headers: ownKey ? { 'X-OpenAI-Key': ownKey } : undefined, body: JSON.stringify({ sessionId: current.id, question: text, mode: 'walkthrough', topic, language, ...(pictures.length ? { images: pictures } : {}), context: resumeContext(stepsRef.current) }), signal: controller.signal });
+      const response = await request('/answers', { method: 'POST', headers: ownKey ? { 'X-OpenAI-Key': ownKey } : undefined, body: JSON.stringify({ sessionId: current.id, question: text, mode: 'walkthrough', topic: kind, language, ...(pictures.length ? { images: pictures } : {}), context: resumeContext(stepsRef.current) }), signal: controller.signal });
       await readEvents(response, (event, value) => {
         if (authEpoch.current !== signIn || controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
         if (event === 'step') { stepsRef.current = [...stepsRef.current, value as unknown as WalkStep]; setSteps(stepsRef.current); }
@@ -380,10 +384,16 @@ export function App() {
     const timer = setTimeout(() => {
       answeredId.current = heard.lastId;
       // Answer whatever was said once the speaker stops. ponytail: a lone word ("So", "Okay") is skipped as filler.
-      if (heard.text.split(/\s+/).length > 1) { setQuestion(heard.text); void generate(heard.text, undefined, mode, false); }
+      if (heard.text.split(/\s+/).length <= 1) return;
+      setQuestion(heard.text);
+      // Mid-walkthrough, a new problem starts a fresh walkthrough; anything else is a follow-up about the current step.
+      if (mode === 'walkthrough' && stepsRef.current.length && !isNewProblem(heard.text)) explainStep(heard.text);
+      else void generate(heard.text, undefined, mode, mode === 'walkthrough');
     }, ANSWER_AFTER_QUIET_MS);
     return () => clearTimeout(timer);
   }, [automatic, transcript, generating, session?.status]);
+  // Restart listening once the microphone is off, so capture picks up the new setting.
+  useEffect(() => { if (relisten.current && !mic) { relisten.current = false; void run(async () => { await chooseSource('audio'); }); } }, [mic]);
   // Shortcuts drive the pop-up: listen and answer what is asked, or screenshot the problem and solve it at once.
   actions.current = {
     next: () => moveStep(1),
@@ -407,12 +417,14 @@ export function App() {
       await generate(said, shot);
     }),
     answer: () => void generate(),
+    // From the pop-up's microphone notice: keep listening to the call, without the microphone.
+    'mic-off': () => void run(async () => { const listening = captureStatus !== 'idle'; await stopCapture(); relisten.current = listening; setMic(false); }),
     'follow-up': text => { if (typeof text !== 'string') return; if (mode === 'walkthrough' && walking) setNotice('Ask once the walkthrough finishes, so it is not interrupted.'); else if (mode === 'walkthrough' && stepsRef.current.length) explainStep(text); else void generate(text); },
   };
   // The pop-up is a second window that only displays what this one knows.
   useEffect(() => {
-    void window.ctrue?.popupState({ status: generating ? 'thinking' : captureStatus === 'live' ? 'listening' : captureStatus === 'connecting' ? 'connecting' : 'ready', question: activeQuestion.current, answer, heard: transcript.at(-1)?.text || '', error: mode === 'walkthrough' ? walkError || error : error, shots: shots.length, history: !generating && answers.at(-1)?.text === answer ? answers.slice(0, -1) : answers, walk: mode === 'walkthrough' && steps[stepIndex] ? { step: steps[stepIndex], index: stepIndex, total: steps.length, more: walking, explanation: explainedIndex === stepIndex ? answer : '' } : null }).catch(() => {});
-  }, [answer, answers, generating, captureStatus, transcript, error, shots.length, mode, steps, stepIndex, walking, walkError, explainedIndex]);
+    void window.ctrue?.popupState({ status: generating ? 'thinking' : captureStatus === 'live' ? 'listening' : captureStatus === 'connecting' ? 'connecting' : 'ready', question: activeQuestion.current, answer, heard: transcript.slice(transcript.findIndex(t => t.id === answeredId.current) + 1).slice(-8).map(t => t.text.trim()).filter(Boolean).join(' '), error: mode === 'walkthrough' ? walkError || error : error, shots: shots.length, mic: mic && captureStatus !== 'idle', history: !generating && answers.at(-1)?.text === answer ? answers.slice(0, -1) : answers, walk: mode === 'walkthrough' && steps[stepIndex] ? { step: steps[stepIndex], index: stepIndex, total: steps.length, more: walking, explanation: explainedIndex === stepIndex ? answer : '' } : null }).catch(() => {});
+  }, [answer, answers, mic, generating, captureStatus, transcript, error, shots.length, mode, steps, stepIndex, walking, walkError, explainedIndex]);
 
   const needsKey = !!token && !demo && !!account && account.plan !== 'owner' && !hasKey;
   function keyForm() {

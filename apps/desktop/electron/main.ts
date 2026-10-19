@@ -200,6 +200,7 @@ else {
     ipc('ctrue:popup-state', value => { if (!value || typeof value !== 'object' || JSON.stringify(value).length > 200000) throw new Error('Invalid pop-up state.'); popup.webContents.send('ctrue:event', { action: 'popup-state', payload: value }); });
     ipc('ctrue:popup-ask', text => { if (typeof text !== 'string' || !text.trim() || text.length > 12000) throw new Error('Invalid follow-up question.'); emit('follow-up', text); });
     ipc('ctrue:popup-hide', () => popup.hide());
+    ipc('ctrue:popup-mic-off', () => emit('mic-off'));
     ipc('ctrue:popup-step', delta => { if (delta !== 1 && delta !== -1) throw new Error('Invalid step move.'); emit(delta === 1 ? 'next' : 'previous'); });
     ipc('ctrue:shortcuts', async value => {
       const next = validateShortcuts(value); const failures = registerShortcuts(next);

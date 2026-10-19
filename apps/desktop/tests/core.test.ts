@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { defaultShortcuts, isNewerVersion, parseHandoff, trustedService, validateShortcuts } from '../electron/security';
-import { acceleratorFrom, heardSince, parseMarkdown, prettyShortcut, readEvents, recentSpeech, updateTranscript } from '../src/api';
+import { acceleratorFrom, heardSince, isNewProblem, parseMarkdown, prettyShortcut, readEvents, recentSpeech, updateTranscript } from '../src/api';
 import { encodePCM16 } from '../public/pcm-worklet.js';
 import { buildCode, resumeContext, stepsMatchFinal, type WalkStep } from '../src/steps';
 
@@ -114,4 +114,9 @@ test('replaying walkthrough steps rebuilds the final code, including replacement
   assert.equal(stepsMatchFinal(steps.slice(0, 4)), null, 'no verdict before the final step arrives');
   assert.match(resumeContext(steps.slice(0, 2)), /^Steps already delivered/);
   assert.equal(resumeContext([]), '');
+});
+
+test('a spoken question mid-walkthrough is a new problem only when it names one', () => {
+  for (const text of ['Can you build a system design for Amazon?', 'Now design Uber', 'Write a function that reverses a list', 'Given an array of integers, return two sums']) assert.equal(isNewProblem(text), true, text);
+  for (const text of ['How would you scale this?', 'Why did you pick Kafka here?', 'Can you design it to handle failures?', 'What is the time complexity?']) assert.equal(isNewProblem(text), false, text);
 });
