@@ -56,7 +56,6 @@ try {
   const handoff = await (await request('/auth/handoff', 'POST', { refreshToken: 'demo' })).json();
   assert.equal((await (await request('/auth/redeem', 'POST', { code: handoff.code }, false)).json()).accessToken, 'demo');
   assert.equal((await request('/auth/redeem', 'POST', { code: handoff.code }, false)).status, 401);
-  assert.equal((await request('/billing/checkout', 'POST', { plan: 'monthly' })).status, 503);
   socket = new WebSocket(`ws://127.0.0.1:${port}/transcription`);
   await once(socket, 'open');
   const messages = [];

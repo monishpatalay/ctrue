@@ -7,7 +7,7 @@ import { Markdown } from '@/components/markdown';
 type Auth = {id:string;email:string};
 type Account = {balanceSeconds:number;plan:string;email?:string;metered?:boolean};
 type ActiveSession = {id:string;status:'active'|'paused'|'ended';remainingSeconds:number;elapsedSeconds:number};
-type Health = {status:string;mode:string;configured:{ai:boolean;auth:boolean;billing:boolean}};
+type Health = {status:string;mode:string;configured:{ai:boolean;auth:boolean}};
 export default function Dashboard() {
  const [auth,setAuth]=useState<Auth|null>(null);const [ready,setReady]=useState(false);
  const [health,setHealth]=useState<Health|null>(null); const [account,setAccount]=useState<Account|null>(null);const [active,setActive]=useState<ActiveSession|null>(null);

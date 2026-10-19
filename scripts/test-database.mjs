@@ -38,7 +38,7 @@ async function live() {
   const jwt = (audience = origin) => new SignJWT({ email: 'live@example.com' }).setProtectedHeader({ alg: 'EdDSA', kid: 'test' })
     .setSubject('user-live').setIssuer(origin).setAudience(audience).setExpirationTime('15m').sign(privateKey);
   const api = spawn(process.execPath, ['--import', 'tsx', 'apps/api/src/index.ts'], {
-    env: { ...process.env, PORT: '55433', HOST: '127.0.0.1', DEMO_MODE: 'false', NODE_ENV: 'test', METERING: 'false', OPENAI_API_KEY: '', STRIPE_SECRET_KEY: '',
+    env: { ...process.env, PORT: '55433', HOST: '127.0.0.1', DEMO_MODE: 'false', NODE_ENV: 'test', METERING: 'false', OPENAI_API_KEY: '',
       DATABASE_URL: `postgresql://postgres@localhost:55432/postgres?host=${encodeURIComponent(socket)}`, NEON_AUTH_BASE_URL: `${origin}/neondb/auth/` },
     stdio: ['ignore', 'inherit', 'inherit'],
   });
@@ -54,7 +54,7 @@ async function live() {
       health = await call('/health').catch(() => null);
       if (!health) await wait(100);
     }
-    assert.deepEqual(health?.body.configured, { auth: true, ai: false, billing: false });
+    assert.deepEqual(health?.body.configured, { auth: true, ai: false });
     const browser = await jwt();
     const account = await call('/account', browser);
     assert.deepEqual([account.status, account.body.balanceSeconds, account.body.email], [200, 600, 'live@example.com']);
@@ -100,6 +100,7 @@ try {
   started = true;
   const sql = readFileSync('database/migrations/001_ctrue.sql', 'utf8')
     + '\n' + readFileSync('database/migrations/002_unmetered.sql', 'utf8')
+    + '\n' + readFileSync('database/migrations/003_remove_payments.sql', 'utf8')
     + '\n' + readFileSync('database/tests/accounting.sql', 'utf8');
   run('psql', ['-h', socket, '-p', '55432', '-U', 'postgres', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1'], sql);
   await live();

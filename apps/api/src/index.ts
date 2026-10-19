@@ -8,7 +8,6 @@ import { randomBytes } from 'node:crypto';
 import pg from 'pg';
 import { createRemoteJWKSet, errors, jwtVerify } from 'jose';
 import OpenAI from 'openai';
-import Stripe from 'stripe';
 import pdf from 'pdf-parse/lib/pdf-parse.js';
 import mammoth from 'mammoth';
 import { AudioBudget, AudioTurns, DemoStore, Handoffs, HttpError, LANGUAGES, StepScanner, WALK_SCHEMA, docxSize, imageData, openaiKey, prompt, sha256, string, toWalkStep, uuid, walkPrompt, type Session } from './core.js';
@@ -19,8 +18,8 @@ const env=process.env, demo=env.DEMO_MODE==='true', host=env.HOST||'127.0.0.1', 
 if(demo && (env.NODE_ENV==='production' || !['127.0.0.1','::1','localhost'].includes(host))) throw new Error('Demo must run in development on loopback');
 if(!Number.isInteger(port)||port<1||port>65535) throw new Error('Invalid PORT');
 const authBase=env.NEON_AUTH_BASE_URL?.replace(/\/+$/,'');
-const configured={auth:!!(env.DATABASE_URL&&authBase),ai:!!env.OPENAI_API_KEY,billing:!!(env.STRIPE_SECRET_KEY&&env.STRIPE_WEBHOOK_SECRET)};
-// Billing is dormant (the app is free), so production needs only sign-in, the database and an OpenAI key for the owner.
+const configured={auth:!!(env.DATABASE_URL&&authBase),ai:!!env.OPENAI_API_KEY};
+// Production needs sign-in, the database and an OpenAI key for the owner.
 if(env.NODE_ENV==='production'&&!(configured.auth&&configured.ai)) throw new Error('Production requires Neon and OpenAI credentials');
 const pool=configured.auth?new pg.Pool({connectionString:env.DATABASE_URL,max:10}):null;
 pool?.on('error',error=>console.error('Database connection error:',error.message));
@@ -28,7 +27,6 @@ pool?.on('error',error=>console.error('Database connection error:',error.message
 const jwks=authBase?createRemoteJWKSet(new URL(`${authBase}/.well-known/jwks.json`)):null, issuer=authBase?new URL(authBase).origin:'';
 // METERING=false makes the app free: sessions track time but never spend or require credits.
 const metered=env.METERING!=='false';
-const stripe=configured.billing?new Stripe(env.STRIPE_SECRET_KEY!):null;
 const store=new DemoStore(), handoffs=new Handoffs<{id:string;email?:string}>();
 async function sql<T extends pg.QueryResultRow=pg.QueryResultRow>(text:string,values:unknown[]):Promise<T[]> {
   if(!pool)throw new HttpError(503,'Database not configured');
@@ -48,8 +46,6 @@ const trial=Number(env.TRIAL_SECONDS||600), transcriptionLanguage=env.OPENAI_TRA
 if(!Number.isInteger(trial)||trial<0||trial>36000) throw new Error('Invalid TRIAL_SECONDS');
 const vadThreshold=Number(env.AUDIO_VAD_THRESHOLD||0.01),silenceMs=Number(env.AUDIO_SILENCE_MS||600);
 if(!Number.isFinite(vadThreshold)||vadThreshold<=0||vadThreshold>=1||!Number.isFinite(silenceMs)||silenceMs<200||silenceMs>3000)throw new Error('Invalid audio VAD calibration');
-const plans={monthly:{price:env.STRIPE_PRICE_MONTHLY,seconds:Number(env.PLAN_MONTHLY_SECONDS||36000)},quarterly:{price:env.STRIPE_PRICE_QUARTERLY,seconds:Number(env.PLAN_QUARTERLY_SECONDS||108000)},'six-month':{price:env.STRIPE_PRICE_SIX_MONTH,seconds:Number(env.PLAN_SIX_MONTH_SECONDS||216000)},yearly:{price:env.STRIPE_PRICE_YEARLY,seconds:Number(env.PLAN_YEARLY_SECONDS||432000)}};
-for(const p of Object.values(plans)) if(!Number.isSafeInteger(p.seconds)||p.seconds<=0||p.seconds>31536000) throw new Error('Invalid plan allowance');
 type User={id:string;email?:string;desktop:boolean};
 async function authenticate(token:string):Promise<User> {
   if(demo) { if(token!=='demo')throw new HttpError(401,'Demo accepts only demo credentials');return {id:'demo',email:'demo@localhost',desktop:false}; }
@@ -116,32 +112,6 @@ if(!Number.isInteger(trustedProxies)||trustedProxies<0||trustedProxies>5)throw n
 const app=express();app.disable('x-powered-by');app.set('trust proxy',trustedProxies);
 app.use(cors({origin(origin,cb){cb(originAllowed(origin)?null:new HttpError(403,'Origin denied'),originAllowed(origin));}}));
 app.get('/health',(_req,res)=>res.json({status:'ok',mode:demo?'demo':'live',configured}));
-// Raw bytes are required for Stripe signature verification, before JSON middleware.
-app.post('/billing/webhook',express.raw({type:'application/json',limit:'1mb'}),async(req,res,next)=>{
-  try {
-    if(!stripe||!pool)throw new HttpError(503,'Billing not configured');
-    let event:Stripe.Event;try{event=stripe.webhooks.constructEvent(req.body,string(req.headers['stripe-signature'],'signature',2000),env.STRIPE_WEBHOOK_SECRET!);}catch{throw new HttpError(400,'Invalid webhook signature');}
-    if(event.type==='invoice.paid') {
-      const invoice=event.data.object;
-      if(invoice.amount_paid>0 && ['subscription_create','subscription_cycle'].includes(invoice.billing_reason||'') && invoice.parent?.subscription_details?.subscription) {
-        const subscriptionId=invoice.parent.subscription_details.subscription;
-        const sub=await stripe.subscriptions.retrieve(typeof subscriptionId==='string'?subscriptionId:subscriptionId.id);
-        const uid=sub.metadata.userId;
-        const paidLines=invoice.lines.data.filter(line=>line.parent?.subscription_item_details&&!line.parent.subscription_item_details.proration);
-        const billedPrice=paidLines.length===1&&paidLines[0].quantity===1?paidLines[0].pricing?.price_details?.price:null;
-        const configuredPlan=Object.values(plans).find(plan=>plan.price&&plan.price===billedPrice);
-        if(!uid||!configuredPlan||invoice.lines.has_more)throw new HttpError(400,'Unrecognized subscription invoice');
-        await sql('select public.grant_invoice($1,$2,$3)',[invoice.id,uid,configuredPlan.seconds]).catch(()=>{throw new HttpError(503,'Credit grant failed; retry webhook');});
-      }
-    } else if(event.type==='customer.subscription.created'||event.type==='customer.subscription.updated'||event.type==='customer.subscription.deleted') {
-      // Fetch canonical current state so delayed duplicate events cannot restore stale status.
-      const sub=await stripe.subscriptions.retrieve(event.data.object.id), uid=sub.metadata.userId;
-      const currentPlan=Object.entries(plans).find(([,plan])=>plan.price&&sub.items.data.some(item=>item.price.id===plan.price))?.[0];
-      if(uid) await sql('update accounts set subscription_status=$2,plan=$3 where user_id=$1',[uid,sub.status,sub.status==='canceled'?'trial':currentPlan||'trial']);
-    }
-    res.json({received:true});
-  }catch(e){next(e);}
-});
 app.use(express.json({limit:'5mb'}));
 app.use((req,_res,next)=>{if(req.body!==undefined&&(req.body===null||typeof req.body!=='object'||Array.isArray(req.body)))next(new HttpError(400,'Expected JSON object'));else {req.body??={};next();}});
 const mint=()=>({accessToken:randomBytes(32).toString('hex'),refreshToken:randomBytes(32).toString('hex')});
@@ -189,23 +159,6 @@ app.post('/auth/handoff',async(req,res)=>{
   // The desktop gets its own Ctrue credential at redemption; no browser or provider session is cloned.
   await action(u.id,null,'account');
   res.json(handoffs.issue({id:u.id,email:u.email}));
-});
-app.post('/billing/checkout',async(req,res)=>{
-  if(demo)throw new HttpError(503,'Demo has no purchases or paid credits');
-  if(!stripe||!pool)throw new HttpError(503,'Billing not configured');
-  const plan=string(req.body.plan,'plan',20) as keyof typeof plans,p=plans[plan];if(!p?.price)throw new HttpError(400,'Plan is unavailable');
-  const u=user(req);await action(u.id,null,'account');
-  const [account]=await sql<{stripe_customer:string|null}>('select stripe_customer from accounts where user_id=$1',[u.id]);
-  const customer=account.stripe_customer||(await stripe.customers.create({email:u.email,metadata:{userId:u.id}},{idempotencyKey:`ctrue-customer-${u.id}`})).id;
-  if(!account.stripe_customer)await sql('update accounts set stripe_customer=$2 where user_id=$1',[u.id,customer]);
-  const checkout=await stripe.checkout.sessions.create({mode:'subscription',line_items:[{price:p.price,quantity:1}],client_reference_id:u.id,customer,subscription_data:{metadata:{userId:u.id,plan}},success_url:`${env.WEB_URL||'http://localhost:3000'}/dashboard?billing=success`,cancel_url:`${env.WEB_URL||'http://localhost:3000'}/pricing`});
-  res.json({url:checkout.url});
-});
-app.post('/billing/portal',async(req,res)=>{
-  if(demo)throw new HttpError(503,'Demo has no billing portal');if(!stripe||!pool)throw new HttpError(503,'Billing not configured');
-  const u=user(req),[account]=await sql<{stripe_customer:string|null}>('select stripe_customer from accounts where user_id=$1',[u.id]);
-  if(!account?.stripe_customer)throw new HttpError(409,'No billing customer yet');
-  res.json({url:(await stripe.billingPortal.sessions.create({customer:account.stripe_customer,return_url:`${env.WEB_URL||'http://localhost:3000'}/dashboard`})).url});
 });
 const answering=new Set<string>();
 app.post('/answers',async(req,res,next)=>{

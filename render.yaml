@@ -26,7 +26,7 @@ services:
       - key: HOST
         value: 0.0.0.0
       - key: NODE_ENV
-        value: development    # switch to production once the STRIPE_* variables are set; production refuses to start without them
+        value: development    # production refuses to start without the Neon and OpenAI settings
       - key: DEMO_MODE
         value: "false"
       - key: TRUST_PROXY
@@ -49,14 +49,6 @@ services:
         value: "600"
       - key: TRIAL_SECONDS
         value: "600"
-      - key: PLAN_MONTHLY_SECONDS
-        value: "36000"
-      - key: PLAN_QUARTERLY_SECONDS
-        value: "108000"
-      - key: PLAN_SIX_MONTH_SECONDS
-        value: "216000"
-      - key: PLAN_YEARLY_SECONDS
-        value: "432000"
       - key: METERING
         value: "false"          # free app: every user brings their own OpenAI key
       - key: DATABASE_URL

@@ -1,7 +1,7 @@
 -- Run with ON_ERROR_STOP in a disposable database after migration; assertions roll back.
 begin;
 do $$
-declare uid text:='user-one'; other_uid text:='user-two'; s jsonb; sid uuid; balance bigint; refused boolean:=false;
+declare uid text:='user-one'; other_uid text:='user-two'; s jsonb; sid uuid; refused boolean:=false;
 begin
   s:=public.session_action(uid,null,'start',100); sid:=(s->>'id')::uuid;
   assert (public.session_action(uid,null,'start',100)->>'id')::uuid=sid,'Duplicate start created another session';
@@ -18,12 +18,6 @@ begin
   refused:=false;
   begin perform public.session_action(other_uid,sid,'get',100);exception when others then refused:=true;end;
   assert refused,'Cross-user session accepted';
-  select balance_seconds into balance from accounts where user_id=uid;
-  update accounts set subscription_status='canceled',plan='trial' where user_id=uid;
-  assert public.grant_invoice('inv_test',uid,1000),'First invoice not granted';
-  assert not public.grant_invoice('inv_test',uid,1000),'Duplicate invoice granted';
-  assert (select subscription_status from accounts where user_id=uid)='canceled','Historical invoice restored canceled subscription';
-  assert (select balance_seconds from accounts where user_id=uid)=balance+1000,'Credit grant amount wrong';
   perform public.session_action(uid,sid,'end',100);
   assert public.session_action(uid,sid,'resume',100)->>'status'='ended','Resumed ended session';
   -- Desktop credentials: rotation replaces both hashes once; reuse, expiry and revocation are refused.
@@ -55,5 +49,7 @@ begin
   refused:=false;
   begin perform public.desktop_token_issue('no-account',null,'access-7','refresh-7');exception when others then refused:=true;end;
   assert refused,'Credential issued without an account';
+  assert not exists(select 1 from information_schema.columns where table_schema='public' and table_name='accounts' and column_name in ('stripe_customer','subscription_status')),'Payment columns still present';
+  assert to_regclass('public.credit_grants') is null and to_regprocedure('public.grant_invoice(text,text,bigint)') is null,'Payment table or function still present';
 end $$;
 rollback;
