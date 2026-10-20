@@ -25,7 +25,7 @@ export default defineConfig({
     { command: 'node --import tsx apps/api/src/index.ts', cwd: '..', url: `${API}/health`, reuseExistingServer: !process.env.CI,
       env: { ...blank, DEMO_MODE: 'true', HOST: '127.0.0.1', PORT: '54318', NODE_ENV: 'test', ALLOWED_ORIGINS: `${WEB},${RENDERER}` } },
     { command: 'npx next dev --port 53000 --hostname 127.0.0.1', cwd: '../apps/web', url: WEB, timeout: 120_000, reuseExistingServer: !process.env.CI,
-      env: { ...blank, NEXT_PUBLIC_DEMO_MODE: 'true', NEXT_PUBLIC_API_URL: API } },
+      env: { ...blank, NEXT_PUBLIC_DEMO_MODE: 'true', NEXT_PUBLIC_API_URL: API, NEXT_PUBLIC_MAC_DOWNLOAD_URL: 'https://example.com/Ctrue-mac-arm64.dmg', NEXT_PUBLIC_WINDOWS_DOWNLOAD_URL: 'https://example.com/Ctrue-windows-x64.exe' } },
     { command: 'npx vite --host 127.0.0.1 --port 55173 --strictPort', cwd: '../apps/desktop', url: RENDERER, reuseExistingServer: !process.env.CI,
       env: { VITE_API_URL: API, CTRUE_API_URL: API } },
   ],

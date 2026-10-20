@@ -1,4 +1,6 @@
-name: Build unsigned desktop packages
+name: Build the Windows release
+# Run by hand for a release: tests the real Electron app on Windows, then builds the production installer and its
+# update feed (latest.yml) for the GitHub release. Unsigned: Windows SmartScreen asks users to choose Run anyway.
 on: workflow_dispatch
 jobs:
   windows:
@@ -12,10 +14,25 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: npx playwright test -c e2e --project electron
       - run: npm run package:win
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          CTRUE_SIGNED_RELEASE: 'true'
+          CTRUE_API_URL: https://api.ctrue.monishpatalay.dev
+          VITE_API_URL: https://api.ctrue.monishpatalay.dev
+          CTRUE_WEBSITE_URL: https://ctrue.monishpatalay.dev
+          VITE_WEBSITE_URL: https://ctrue.monishpatalay.dev
+          CTRUE_UPDATE_FEED_URL: https://github.com/monishpatalay/ctrue/releases/latest/download/
       - uses: actions/upload-artifact@v4
         with:
-          name: ctrue-windows-x64-unsigned
-          path: apps/desktop/release/*.exe
+          name: ctrue-windows-x64
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.exe.blockmap
+            apps/desktop/release/latest.yml
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces-windows
+          path: test-results

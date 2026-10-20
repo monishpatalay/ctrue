@@ -23,8 +23,9 @@ test('the home page leads to the download and the workspace', async ({ page }) =
   await expect(page.getByRole('link', { name: 'Skip to content' })).toBeFocused();
   await page.getByRole('link', { name: /Get Ctrue/ }).click();
   await expect(page).toHaveURL(/\/downloads$/);
-  // No published installer URL in this environment: the page says so instead of linking nowhere.
-  await expect(page.getByText('Build locally')).toHaveCount(2);
+  await expect(page.getByRole('link', { name: 'Download for macOS ↗' })).toHaveAttribute('href', 'https://example.com/Ctrue-mac-arm64.dmg');
+  await expect(page.getByRole('link', { name: 'Download for Windows ↗' })).toHaveAttribute('href', 'https://example.com/Ctrue-windows-x64.exe');
+  await expect(page.getByText('click More info, then Run anyway')).toBeVisible();
 });
 
 test('legal pages render, and the contact line says when no address is configured', async ({ page }) => {

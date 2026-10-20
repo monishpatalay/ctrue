@@ -22,7 +22,7 @@ const logouts: string[] = [];
 test.beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'ctrue-electron-'));
   mkdirSync(join(root, 'build'));
-  symlinkSync(resolve(__dirname, '../node_modules'), join(root, 'node_modules'), 'dir'); // electron-updater stays external, as in the real build
+  symlinkSync(resolve(__dirname, '../node_modules'), join(root, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir'); // electron-updater stays external, as in the real build
   copyFileSync(join(desktop, 'build/tray.png'), join(root, 'build/tray.png'));
   writeFileSync(join(root, 'package.json'), JSON.stringify({ ...JSON.parse(readFileSync(join(desktop, 'package.json'), 'utf8')), main: 'dist-electron/main.cjs' }));
   // Like scripts/dev.mjs: no baked URLs, so CTRUE_API_URL is read at launch.
@@ -169,5 +169,5 @@ test('the pop-up shows new shortcuts as soon as they are saved (improvement 8)',
   const panel = await popup();
   await expect(panel.locator('.popup-hint')).toContainText('listen');
   await main.evaluate(() => (window as unknown as { ctrue: { shortcuts(v: unknown): Promise<string[]> } }).ctrue.shortcuts({ capture: 'Alt+Shift+K' }));
-  await expect(panel.locator('.popup-hint')).toContainText('⌥⇧K listen');
+  await expect(panel.locator('.popup-hint')).toContainText(process.platform === 'darwin' ? '⌥⇧K listen' : 'Alt+Shift+K listen');
 });

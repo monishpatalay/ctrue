@@ -78,6 +78,12 @@ if (process.argv.includes('--published')) {
   for (const file of published.files.filter(file => !file.url.endsWith('.dmg'))) check(`published ${file.url} has the listed size`, await size(`${expected.feed}${file.url}`) === file.size);
   const dmg = local.files.find(file => file.url.endsWith('.dmg'));
   check('website download (Ctrue-mac-arm64.dmg) is this build\'s DMG', !!dmg && await size(`${expected.feed}Ctrue-mac-arm64.dmg`) === dmg.size);
+  // Windows, built by the "Build the Windows release" workflow: latest.yml lists the installer the updater downloads.
+  const windows = await fetch(`${expected.feed}latest.yml`), win = feedFiles(await windows.text());
+  check(`published Windows feed is ${version}`, windows.ok && win.version === version, win.version);
+  for (const file of win.files) check(`published ${file.url} has the listed size`, await size(`${expected.feed}${file.url}`) === file.size);
+  const exe = win.files.find(file => file.url.endsWith('.exe'));
+  check('website download (Ctrue-windows-x64.exe) is this build\'s installer', !!exe && await size(`${expected.feed}Ctrue-windows-x64.exe`) === exe.size);
 }
 
 console.log(failures.length ? `\n${failures.length} release check(s) failed.` : '\nRelease checks passed.');

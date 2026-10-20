@@ -1,10 +1,10 @@
 # Ctrue
 
-A free, open-source macOS assistant for practice and for calls where help is welcome. Press a shortcut and a private, see-through pop-up transcribes what is being said, reads what is on your screen, and drafts an answer using your own OpenAI API key.
+A free, open-source assistant for macOS and Windows for practice and for calls where help is welcome. Press a shortcut and a private, see-through pop-up transcribes what is being said, reads what is on your screen, and drafts an answer using your own OpenAI API key.
 
 **Website:** [ctrue.monishpatalay.dev](https://ctrue.monishpatalay.dev)
 
-**Download:** [ctrue.monishpatalay.dev/downloads](https://ctrue.monishpatalay.dev/downloads) · macOS on Apple Silicon (M1 and later) · [all releases](https://github.com/monishpatalay/ctrue/releases)
+**Download:** [ctrue.monishpatalay.dev/downloads](https://ctrue.monishpatalay.dev/downloads) · macOS on Apple Silicon (M1 and later) · Windows 10 and 11 (64-bit) · [all releases](https://github.com/monishpatalay/ctrue/releases)
 
 ## Get started
 
@@ -16,7 +16,9 @@ A free, open-source macOS assistant for practice and for calls where help is wel
 6. **Sign in** with Google from the app and click **Connect desktop** on the website.
 7. **Add your OpenAI API key** when the app asks ([create one here](https://platform.openai.com/api-keys); your OpenAI account needs credit). The key stays encrypted on your Mac.
 
-**Updates** install themselves from version 0.1.6 on: Ctrue downloads new versions in the background and shows **Restart to update**, and your permissions carry over. Coming from 0.1.5 or earlier, install 0.1.6 by hand once and repeat steps 1 to 5.
+**On Windows:** run the installer. Ctrue is not signed by Microsoft yet, so if Windows says it protected your PC, click **More info**, then **Run anyway**. Then sign in and add your key (steps 6 and 7). Windows asks no screen permission; if Ctrue cannot hear your microphone, allow it under **Settings → Privacy & security → Microphone**.
+
+**Updates** install themselves from version 0.1.6 on (Windows from its first version): Ctrue downloads new versions in the background and shows **Restart to update**, and your permissions carry over. Coming from 0.1.5 or earlier, install 0.1.6 by hand once and repeat steps 1 to 5.
 
 **Still asked for permission after turning it on?** An older copy of Ctrue may own the switch. Remove **Ctrue** from the Screen & System Audio Recording list with the **−** button (or run `tccutil reset ScreenCapture dev.ctrue.desktop` in Terminal), then repeat steps 3 and 4.
 
@@ -31,7 +33,7 @@ A free, open-source macOS assistant for practice and for calls where help is wel
 | ⌘H | Show or hide the pop-up |
 | ⌥⇧N / ⌥⇧B | Walkthrough mode: next / previous step |
 
-Change any shortcut in **Preferences** by pressing the new keys.
+On Windows, ⌘ is Ctrl and ⌥ is Alt. Change any shortcut in **Preferences** by pressing the new keys.
 
 ## Privacy
 
