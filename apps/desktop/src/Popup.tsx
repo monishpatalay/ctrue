@@ -53,7 +53,8 @@ export function Popup() {
         {walk.step.details && <div className="markdown"><Markdown text={walk.step.details} /></div>}
         {walk.explanation && <div className="popup-answer markdown"><Markdown text={walk.explanation} /></div>}
       </article> : state.question && <p className="popup-question">{state.question}</p>}
-      {state.answer ? <div className="popup-answer markdown"><Markdown text={state.answer} /></div> : !state.error && !state.heard && <p className="popup-empty">{state.status === 'listening' ? 'Listening to the call. The answer appears here when a question is asked.' : state.status === 'thinking' ? 'Working on it…' : 'Listen to the call or take a screenshot to get an answer here.'}</p>}
+      {/* During a walkthrough the answer is a step explanation, shown above with its own step only. */}
+      {walk ? null : state.answer ? <div className="popup-answer markdown"><Markdown text={state.answer} /></div> : !state.error && !state.heard && <p className="popup-empty">{state.status === 'listening' ? 'Listening to the call. The answer appears here when a question is asked.' : state.status === 'thinking' ? 'Working on it…' : 'Listen to the call or take a screenshot to get an answer here.'}</p>}
       {!walk && state.heard && <p className="popup-heard" aria-live="off"><span>Hearing…</span> {state.heard}</p>}
     </div>
     {walk && <nav className="popup-walk-nav" aria-label="Walkthrough steps"><button type="button" disabled={walk.index === 0} onClick={() => void window.ctrue?.popupStep(-1)}>← Prev</button><button type="button" disabled={walk.index >= walk.total - 1} onClick={() => void window.ctrue?.popupStep(1)}>Next →</button></nav>}

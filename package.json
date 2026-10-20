@@ -17,7 +17,9 @@
     "test:database": "node scripts/test-database.mjs",
     "test:smoke": "node scripts/smoke.mjs",
     "package:mac": "npm run package:mac -w @ctrue/desktop",
-    "package:win": "npm run package:win -w @ctrue/desktop"
+    "package:win": "npm run package:win -w @ctrue/desktop",
+    "test:e2e": "playwright test -c e2e",
+    "test:coverage": "c8 --reporter=text-summary --reporter=text --include=apps/api/src/core.ts --include=apps/desktop/src/api.ts --include=apps/desktop/src/steps.ts --include=apps/desktop/electron/security.ts --include=apps/web/lib/events.mjs --include=apps/web/components/markdown.tsx npm test"
   },
   "engines": {
     "node": ">=22.19"
@@ -25,5 +27,10 @@
   "dependencies": {
     "@neon/config": "^1.9.1",
     "@neon/env": "^1.6.1"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "@playwright/test": "^1.64.1",
+    "c8": "^12.0.0"
   }
 }
