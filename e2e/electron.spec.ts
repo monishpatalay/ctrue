@@ -110,3 +110,11 @@ test('the main process refuses a Shift-only global shortcut', async () => {
   const result = await main.evaluate(() => (window as unknown as { ctrue: { shortcuts(v: unknown): Promise<string[]> } }).ctrue.shortcuts({ capture: 'Shift+K' }).then(() => 'saved', error => String(error)));
   expect(result).toContain('Invalid shortcut for capture');
 });
+
+test('a failed update check says so instead of claiming Ctrue is up to date (ELEC-17)', async () => {
+  await app.evaluate(() => { globalThis.fetch = async () => new Response('', { status: 503 }); });
+  await main.getByRole('button', { name: 'Preferences' }).click();
+  await main.getByRole('button', { name: 'Check for updates' }).click();
+  await expect(main.getByRole('alert')).toContainText('Could not check for updates');
+  await expect(main.getByText('You have the latest version')).toHaveCount(0);
+});

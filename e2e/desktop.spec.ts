@@ -255,3 +255,13 @@ test('signing out ends the session and clears the whole conversation, including 
   await expect(page.getByText('Something private')).toHaveCount(0);
   expect(await calls(page, 'signout')).toHaveLength(1);
 });
+
+test('a resume over the 8 MB upload limit is refused before it is sent (REN-26)', async ({ page }) => {
+  await demo(page);
+  let uploads = 0;
+  await page.route(`${API}/profile/import`, route => { uploads++; return route.fallback(); });
+  await page.getByRole('button', { name: 'My profile' }).click();
+  await page.locator('.upload-label input[type=file]').setInputFiles({ name: 'resume.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(8_500_000) });
+  await expect(page.getByRole('alert')).toContainText('Resume must be under 8 MB.');
+  expect(uploads).toBe(0);
+});

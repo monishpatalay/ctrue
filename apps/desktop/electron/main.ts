@@ -23,20 +23,20 @@ const releasesPage = 'https://github.com/monishpatalay/ctrue/releases/latest';
 // Builds signed with the same certificate update themselves; any other build only gets a download link.
 const updateFeed = process.env.CTRUE_UPDATE_FEED_URL;
 const autoUpdate = app.isPackaged && process.env.CTRUE_SIGNED_RELEASE === 'true' && !!updateFeed && /^(https:\/\/|http:\/\/127\.0\.0\.1[:/])/.test(updateFeed);
+// Both reject when the check itself fails, so "Check for updates" never says Ctrue is current when it could not tell.
+const checkFailed = () => new Error('Could not check for updates. Check your connection and try again.');
 async function checkForUpdates(): Promise<string | null> {
   if (!autoUpdate) return checkForNewRelease();
-  try { const result = await autoUpdater.checkForUpdates(); return result?.isUpdateAvailable ? result.updateInfo.version : null; }
-  catch (error) { console.warn('Update check failed:', error instanceof Error ? error.message : error); return null; }
+  const result = await autoUpdater.checkForUpdates().catch(() => { throw checkFailed(); });
+  return result?.isUpdateAvailable ? result.updateInfo.version : null;
 }
 async function checkForNewRelease(): Promise<string | null> {
-  try {
-    const response = await fetch('https://api.github.com/repos/monishpatalay/ctrue/releases/latest', { headers: { Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(10000) });
-    if (!response.ok) return null;
-    const { tag_name: tag } = await response.json() as { tag_name?: unknown };
-    if (typeof tag !== 'string' || !/^v?\d+(\.\d+)*$/.test(tag) || !isNewerVersion(tag, app.getVersion())) return null;
-    emit('update-available', tag.replace(/^v/, ''));
-    return tag.replace(/^v/, '');
-  } catch { return null; }
+  const response = await fetch('https://api.github.com/repos/monishpatalay/ctrue/releases/latest', { headers: { Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(10000) }).catch(() => null);
+  if (!response?.ok) throw checkFailed();
+  const { tag_name: tag } = await response.json().catch(() => ({})) as { tag_name?: unknown };
+  if (typeof tag !== 'string' || !/^v?\d+(\.\d+)*$/.test(tag) || !isNewerVersion(tag, app.getVersion())) return null;
+  emit('update-available', tag.replace(/^v/, ''));
+  return tag.replace(/^v/, '');
 }
 const tokensPath = () => path.join(app.getPath('userData'), 'credentials.enc');
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
@@ -265,6 +265,7 @@ else {
       autoUpdater.on('update-available', info => emit('update-available', info.version));
       autoUpdater.on('update-downloaded', info => emit('update-ready', info.version));
     }
-    if (app.isPackaged) { void checkForUpdates(); setInterval(() => void checkForUpdates(), 6 * 60 * 60 * 1000); }
+    const background = () => void checkForUpdates().catch(error => console.warn('Update check failed:', error.message));
+    if (app.isPackaged) { background(); setInterval(background, 6 * 60 * 60 * 1000); }
   }).catch(error => { console.error(error); app.quit(); });
 }
