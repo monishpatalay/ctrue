@@ -236,10 +236,11 @@ wss.on('connection',(socket,req)=>{
       if(!started) {
         if(busy)throw new HttpError(400,'Wait for ready');busy=true;
         if(message.type!=='start')throw new HttpError(400,'Start message required');
-        const u=await authenticate(string(message.accessToken,'access token',8000));rate(`ws:${u.id}`,6);sessionId=uuid(message.sessionId);await active(u.id,sessionId);
+        const u=await authenticate(string(message.accessToken,'access token',8000));rate(`ws:${u.id}`,6);sessionId=uuid(message.sessionId);
+        // Independent lookups, made at once: each is a database round trip, and listening waits for both.
+        const [,key]=await Promise.all([active(u.id,sessionId),aiKey(u.id,message.openaiKey)]);
         transcribing.get(u.id)?.close(4001,'Replaced by a newer transcription');
         uid=u.id;transcribing.set(uid,socket);
-        const key=await aiKey(u.id,message.openaiKey);
         started=true;clearTimeout(startup);
         if(socket.readyState!==WebSocket.OPEN){if(transcribing.get(uid)===socket)transcribing.delete(uid);return;}
         if(demo){ready=true;send({type:'ready'});send({type:'final',id:'demo-1',text:'[DEMO — no audio transcription] Tell me about a project you built.'});return;}

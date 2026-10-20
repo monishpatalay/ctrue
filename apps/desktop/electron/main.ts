@@ -130,6 +130,9 @@ async function captureSources(options: Electron.SourcesOptions) {
     throw new Error(denied ? 'Screen recording is not allowed for Ctrue yet. Use Open System Settings at the top of the Live assistant page, turn on Ctrue, then click Restart Ctrue.' : 'Could not list screens and windows. Quit and reopen Ctrue, then try again.');
   }
 }
+// Listing sources is slow when macOS renders a thumbnail of every window: ask for only the kind the ID names, without
+// pictures (this runs on every Cmd+L and Cmd+J).
+const sourcesFor = (id: string): Electron.SourcesOptions => ({ types: [id.startsWith('window:') ? 'window' : 'screen'], thumbnailSize: { width: 0, height: 0 } });
 function registerShortcuts(next: typeof shortcuts) {
   globalShortcut.unregisterAll();
   const failures: string[] = [];
@@ -178,7 +181,7 @@ else {
       if (!captureGrant || request.frame !== window.webContents.mainFrame) { callback({}); return; }
       captureGrant = false;
       try {
-        const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
+        const sources = await desktopCapturer.getSources(sourcesFor(selectedSource));
         const source = sources.find(v => v.id === selectedSource);
         if (!source) { callback({}); return; }
         callback({ video: source, audio: 'loopback' });
@@ -214,7 +217,7 @@ else {
     });
     ipc('ctrue:select-source', async id => {
       if (typeof id !== 'string' || id.length > 256) throw new Error('Invalid capture source.');
-      const sources = await captureSources({ types: ['screen', 'window'] });
+      const sources = await captureSources(sourcesFor(id));
       if (!sources.some(v => v.id === id)) throw new Error('Capture source is no longer available.');
       selectedSource = id; captureGrant = true;
       setTimeout(() => { captureGrant = false; }, 10000);

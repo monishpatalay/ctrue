@@ -362,3 +362,21 @@ test('on Windows, shortcuts show as Ctrl key names and nothing mentions a Mac', 
   await expect(page.locator('.setting-row', { hasText: 'Answer what was just said' }).locator('input')).toHaveValue('Ctrl+Enter');
   await expect(page.getByText(/\bMac\b/)).toHaveCount(0);
 });
+
+test('⌘L shows Listening at once and keeps what is said while the connection is still being made', async ({ page }) => {
+  const audio: number[] = [];
+  let readyAt = 0;
+  await page.routeWebSocket(/\/transcription$/, ws => ws.onMessage(raw => {
+    const message = JSON.parse(String(raw));
+    if (message.type === 'start') setTimeout(() => { readyAt = Date.now(); ws.send(JSON.stringify({ type: 'ready' })); }, 2000);
+    if (message.type === 'audio') audio.push(Date.now());
+  }));
+  await demo(page);
+  const pressed = Date.now();
+  await emit(page, 'capture');
+  await expect(page.locator('.pill.live')).toHaveText('● Listening', { timeout: 1000 });
+  expect(Date.now() - pressed).toBeLessThan(1000);
+  // The audio captured during the 2 s wait arrives in one burst once the connection is ready, not lost.
+  await expect.poll(() => audio.filter(at => readyAt && at - readyAt < 500).length, { timeout: 5000 }).toBeGreaterThanOrEqual(7);
+  expect(audio.every(at => at >= readyAt)).toBe(true);
+});

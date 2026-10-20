@@ -10,7 +10,7 @@ export async function acquireScreen(source?: Source): Promise<MediaStream> {
   if (window.ctrue && source) await window.ctrue.selectSource(source.id);
   return navigator.mediaDevices.getDisplayMedia({ video: true, audio: { channelCount: 1, sampleRate: 24000, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
 }
-export async function startAudio(options: { stream: MediaStream; micId?: string; api: string; accessToken(): string; sessionId: string; openaiKey?: string; signal?: AbortSignal; onText(type: string, id: string, text: string): void; onLevel(level: number): void; onError(error: string): void; onReady(): void; onReconnecting?(): void }): Promise<Capture> {
+export async function startAudio(options: { stream: MediaStream; micId?: string; api: string; accessToken(): string; sessionId: string; openaiKey?: string; signal?: AbortSignal; onText(type: string, id: string, text: string): void; onLevel(level: number): void; onError(error: string): void; onReady(): void; onReconnecting?(): void; onListening?(): void }): Promise<Capture> {
   const { stream } = options;
   const streams = [stream];
   let context: AudioContext | null = null;
@@ -56,7 +56,7 @@ export async function startAudio(options: { stream: MediaStream; micId?: string;
       ws.onmessage = event => {
         let value: { type?: string; id?: unknown; text?: unknown; error?: unknown };
         try { value = JSON.parse(event.data); } catch { failure = 'Invalid transcription response.'; ws.close(); return; }
-        if (value.type === 'ready') { ready = true; attempts = 0; clearTimeout(timeout); options.onReady(); resolve(); }
+        if (value.type === 'ready') { ready = true; attempts = 0; clearTimeout(timeout); flush(ws); options.onReady(); resolve(); }
         else if (value.type === 'partial' || value.type === 'final') options.onText(value.type, String(value.id), String(value.text));
         else if (value.type === 'error') failure = String(value.error || 'Transcription failed.');
       };
@@ -79,21 +79,27 @@ export async function startAudio(options: { stream: MediaStream; micId?: string;
       options.onError(passing.test(reason) ? `${reason.replace(/\.$/, '')}. Reconnecting failed; resume capture to try again.` : reason);
       void stop();
     }
-    await open();
+    // Audio is captured from the first moment and held here (up to 8 s, 200 ms per frame) until the connection is ready,
+    // then sent in one burst, so listening starts at once and nothing said while connecting is lost.
+    const waiting: string[] = [];
+    function flush(ws: WebSocket) { for (const data of waiting.splice(0)) ws.send(JSON.stringify({ type: 'audio', data })); }
     processor.port.onmessage = event => {
       const { pcm, level, rate } = event.data;
       if (closing) return;
       options.onLevel(level);
       if (rate !== 24000) { options.onError('Audio sample rate changed. Restart capture.'); void stop(); return; }
-      const ws = socket;
+      const ws = socket, data = encodeBase64(pcm);
       if (ready && ws?.readyState === WebSocket.OPEN) {
         // ~8 s of queued audio; the API's AudioBudget accepts a 10 s burst, so keep this below that when changing it.
         if (ws.bufferedAmount > 512000) { options.onError('Network is too slow for live audio. Capture stopped.'); void stop(); return; }
-        ws.send(JSON.stringify({ type: 'audio', data: encodeBase64(pcm) }));
-      }
+        ws.send(JSON.stringify({ type: 'audio', data }));
+      } else { waiting.push(data); if (waiting.length > 40) waiting.shift(); }
     };
     for (const media of streams) for (const track of media.getTracks()) track.addEventListener('ended', () => { if (!closing) { options.onError('Capture device or screen sharing ended. Choose the source again.'); void stop(); } });
     await context.resume();
+    options.onListening?.();
+    // Connect in the background; a failure before the first "ready" stops capture with its reason.
+    open().catch(error => { if (!closing) { options.onError(error instanceof Error ? error.message : 'Transcription connection failed.'); void stop(); } });
     return { stream, stop: async () => { options.signal?.removeEventListener('abort', abort); await stop(); } };
   } catch (error) { options.signal?.removeEventListener('abort', abort); await stop(); throw error; }
 }

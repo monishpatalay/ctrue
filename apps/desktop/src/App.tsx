@@ -265,12 +265,15 @@ export function App() {
       setError('');
       if (intent === 'audio') {
         setCaptureStatus('connecting');
-        const current = await ensureSession();
-        if (version !== captureVersion.current || sessionRef.current?.status !== 'active') return;
-        screen = await acquireScreen(selected);
-        if (version !== captureVersion.current || sessionRef.current?.status !== 'active') { screen.getTracks().forEach(track => track.stop()); return; }
-        const active = await startAudio({ stream: screen, micId: mic ? micId : undefined, api: config.api, accessToken: () => tokenRef.current!, sessionId: current.id, openaiKey: (await window.ctrue?.openaiKey()) || undefined, signal: controller.signal,
-          onReady: () => { if (version === captureVersion.current) setCaptureStatus('live'); }, onReconnecting: () => { if (version === captureVersion.current) setCaptureStatus('connecting'); }, onLevel: value => { if (version === captureVersion.current) setLevel(value); },
+        // The session and the screen are independent, so both are requested at once.
+        const [started, shared] = await Promise.allSettled([ensureSession(), acquireScreen(selected)]);
+        if (shared.status === 'fulfilled') screen = shared.value;
+        if (started.status === 'rejected') throw started.reason;
+        if (shared.status === 'rejected') throw shared.reason;
+        const current = started.value;
+        if (version !== captureVersion.current || sessionRef.current?.status !== 'active') { screen!.getTracks().forEach(track => track.stop()); return; }
+        const active = await startAudio({ stream: screen!, micId: mic ? micId : undefined, api: config.api, accessToken: () => tokenRef.current!, sessionId: current.id, openaiKey: (await window.ctrue?.openaiKey()) || undefined, signal: controller.signal,
+          onReady: () => { if (version === captureVersion.current) setCaptureStatus('live'); }, onReconnecting: () => { if (version === captureVersion.current) setCaptureStatus('connecting'); }, onListening: () => { if (version === captureVersion.current) setCaptureStatus('live'); }, onLevel: value => { if (version === captureVersion.current) setLevel(value); },
           // Pausing clears the error banner, so report the capture failure after it, or it vanishes unseen.
           onError: value => { if (version !== captureVersion.current) return; void (async () => { await stopCapture(); if (sessionRef.current?.status === 'active') await controlSession('pause'); setError(value); })(); },
           onText: (type, id, text) => {
