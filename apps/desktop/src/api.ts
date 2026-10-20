@@ -40,7 +40,12 @@ export function updateTranscript(previous: Transcript[], type: string, id: strin
 }
 // During a walkthrough, decides whether a spoken question is a new problem or a follow-up about the current one.
 // ponytail: keyword match. A follow-up phrased like a new task ("design a cache for this") starts a new walkthrough.
-export const isNewProblem = (text: string) => /system design|\b(design|build|create|implement|write|code|solve)\s+(an?\s|[A-Z])|\bgiven an?\s/i.test(text.replace(/\b(design|build)\s+(this|it|that)\b/gi, ''));
+// The verb is matched in any case, but what follows must be "a/an" or a capitalised name ("design Uber"), so the
+// capital check runs on each match outside the case-insensitive regex.
+export const isNewProblem = (text: string) => {
+  const said = text.replace(/\b(design|build)\s+(this|it|that)\b/gi, '');
+  return /system design|\bgiven an?\s/i.test(said) || [...said.matchAll(/\b(?:design|build|create|implement|write|code|solve)\s+(an?\s|[A-Z])/gi)].some(match => /^(?:an?\s|[A-Z])/.test(match[1]));
+};
 // Speech arrives in fragments split at each short pause. This is everything said since the last answer, joined,
 // or null while nothing is new or the newest fragment is still being spoken.
 export function heardSince(transcript: Transcript[], answeredId: string): { text: string; lastId: string } | null {

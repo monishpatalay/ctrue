@@ -119,4 +119,7 @@ test('replaying walkthrough steps rebuilds the final code, including replacement
 test('a spoken question mid-walkthrough is a new problem only when it names one', () => {
   for (const text of ['Can you build a system design for Amazon?', 'Now design Uber', 'Write a function that reverses a list', 'Given an array of integers, return two sums']) assert.equal(isNewProblem(text), true, text);
   for (const text of ['How would you scale this?', 'Why did you pick Kafka here?', 'Can you design it to handle failures?', 'What is the time complexity?']) assert.equal(isNewProblem(text), false, text);
+  // Ordinary follow-ups use the same verbs with a lowercase word after them; only a name ("design Uber") or "a/an" starts a new problem.
+  for (const text of ['How would you design the cache layer?', 'Can you write the tests for this?', 'Why did you code it this way?', 'Could you solve it without extra memory?', 'Can you implement this recursively?', 'Would you write any code differently?']) assert.equal(isNewProblem(text), false, text);
+  for (const text of ['Design a URL shortener', 'Implement LRU cache', 'Build Twitter']) assert.equal(isNewProblem(text), true, text);
 });
