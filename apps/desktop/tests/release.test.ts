@@ -41,7 +41,7 @@ test('the shipped app is signed with the hardened runtime and its safety fuses a
     await require('../scripts/adhoc-sign.cjs').default({ electronPlatformName: 'darwin', appOutDir: '/tmp/out', packager: { appInfo: { productFilename: 'Ctrue' } } });
   } finally { childProcess.execFileSync = original; process.env = saved; }
   assert.deepEqual(signed[0].slice(0, 5), ['--force', '--deep', '--options', 'runtime', '--entitlements']);
-  assert.match(signed[0][5], /build\/entitlements\.mac\.plist$/);
+  assert.match(signed[0][5], /build[\\/]entitlements\.mac\.plist$/);
   const { electronFuses } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).build;
   assert.deepEqual(electronFuses, { runAsNode: false, enableNodeOptionsEnvironmentVariable: false, enableNodeCliInspectArguments: false });
 });
