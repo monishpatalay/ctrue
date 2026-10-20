@@ -37,9 +37,12 @@ export async function realAI({ databaseUrl, authBase, token }) {
   const report = ['# Real OpenAI run', '', `Model ${process.env.OPENAI_MODEL || 'gpt-4.1-mini'}; transcription ${process.env.OPENAI_TRANSCRIPTION_MODEL || 'gpt-live-transcribe'}.`, ''];
   const bearer = await token('real-ai'), headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}` };
   const call = async (path, body, method = 'POST') => (await fetch(base + path, { method, headers, body: body && JSON.stringify(body) })).json();
+  let heartbeat;
   try {
     await call('/profile', { facts: 'Built a calendar app used by 2,000 students at Northwind College. Led two classmates; we shipped in 8 weeks using React and Node.js.' }, 'PUT');
     const session = await call('/sessions', {});
+    // The desktop's 5-second heartbeat; without it the 15-second lease pauses the session mid-run.
+    heartbeat = setInterval(() => void call(`/sessions/${session.id}/heartbeat`, {}).catch(() => {}), 5000);
     const ask = async (title, body) => {
       const started = performance.now();
       const response = await fetch(`${base}/answers`, { method: 'POST', headers: { ...headers, 'X-OpenAI-Key': key }, body: JSON.stringify({ sessionId: session.id, ...body }) });
@@ -92,7 +95,11 @@ export async function realAI({ databaseUrl, authBase, token }) {
     assert(!seen.some(m => m.type === 'error'), JSON.stringify(seen.filter(m => m.type === 'error')));
     assert.match(finals[0]?.text || '', /hash ?map/i);
     assert.equal(finals.length, 1, `18 s of silence was transcribed: ${JSON.stringify(finals.slice(1))}`);
+  } catch (error) {
+    console.log(`  API log:\n${api.logs().trim().split('\n').slice(-15).map(line => `    ${line}`).join('\n')}`);
+    throw error;
   } finally {
+    clearInterval(heartbeat);
     mkdirSync('test-results', { recursive: true });
     writeFileSync('test-results/ai-report.md', report.join('\n'));
     console.log('  Answers written to test-results/ai-report.md');

@@ -23,7 +23,7 @@ export async function launch(port, env) {
   const stop = async () => { api.kill('SIGTERM'); if (api.exitCode === null) await once(api, 'exit'); };
   for (let i = 0; i < 50; i++) {
     if (api.exitCode !== null) throw new Error(`API exited: ${logs}`);
-    if (await fetch(`http://127.0.0.1:${port}/health`).then(r => r.ok, () => false)) return { stop };
+    if (await fetch(`http://127.0.0.1:${port}/health`).then(r => r.ok, () => false)) return { stop, logs: () => logs };
     await wait(100);
   }
   await stop();
@@ -105,6 +105,15 @@ export async function contract({ databaseUrl, authBase, token, origin, privateKe
     const response = await fetch(`${base}/profile/import`, { method: 'POST', body: form, headers: { Authorization: `Bearer ${who.bearer}` }, signal: AbortSignal.timeout(10000) });
     return { status: response.status, body: await response.json() };
   };
+  it('pausing the session while an answer streams ends it with an error event, not silence', async () => {
+    const who = await user();
+    const answer = ask(who, '[mock:slow] long answer');
+    await wait(1200);
+    await call(`/sessions/${who.session.id}/pause`, who.bearer, {});
+    const { text } = await answer;
+    assert.match(text, /event: token/);
+    assert.match(text, /event: error\ndata: \{"error":"[^"]+"\}\n\n$/, `stream ended without an error event: ...${text.slice(-200)}`);
+  });
   it('a PDF and a Word resume import as text for review (API-31)', async () => {
     const who = await user();
     assert.deepEqual(await upload(who, 'resume.pdf', readFileSync('e2e/fixtures/resume.pdf')), { status: 200, body: { facts: 'Built a calendar app used by 2,000 students.' } });
