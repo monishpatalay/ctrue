@@ -16,3 +16,4 @@ dist-electron/
 .vercel
 .env*
 !.env.example
+coverage/
