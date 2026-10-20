@@ -45,7 +45,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 | [API-15](#api-15) | low | confirmed | Model refusals are dropped, so the client sees a successful empty answer; upstream event handling is untested | Open |
 | [API-16](#api-16) | low | plausible | 1 s lease polling writes to the DB on every call and, with pool=10 and cross-region RTT, caps concurrency near ~50 active users | Open (measured by npm run test:load: p95 79 ms at 25 live users, 185 ms at 75, 2.1 s at 150) |
 | [API-19](#api-19) | low | confirmed | sql() reports DB data errors as an outage (503) and maps RAISE messages by substring | Open |
-| [API-20](#api-20) | low | confirmed | docs/API.md contradicts the code in several places | Fixed (docs pass) |
+| [API-20](#api-20) | low | confirmed | docs/API.md contradicts the code in several places | Fixed (622c602) |
 | [API-21](#api-21) | low | confirmed | Config files drift from what the code reads | Open |
 | [API-22](#api-22) | low | confirmed | Status-code and JSON contract gaps, and unexpected 500s are not logged | Open |
 | [API-23](#api-23) | low | confirmed | Wrong user-facing text on lease loss and in free mode | Open |
@@ -61,7 +61,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 | [DEP-2](#dep-2) | low | confirmed | render.yaml drift: dead WEB_URL, lockfile-triggered restarts, unverified TRUST_PROXY hop count | Open |
 | [DEP-3](#dep-3) | low | plausible | CORS and WebSocket origin policy is untested and unforgiving (exact-match, no normalisation, previews and www blocked) | Fixed (9529464) |
 | [DEP-PIN](#dep-pin) | low | plausible | next, react, react-dom, typescript and @types/* are 'latest' on top of a beta Neon Auth SDK that the code works around | Open |
-| [DOC-1](#doc-1) | low | confirmed | docs/API.md no longer matches the API (walkthrough mode, key header, metering, credits) | Fixed (docs pass) |
+| [DOC-1](#doc-1) | low | confirmed | docs/API.md no longer matches the API (walkthrough mode, key header, metering, credits) | Fixed (622c602) |
 | [DOC-2](#doc-2) | low | confirmed | Stale or contradicting claims in README, VERIFICATION.md, NEON-MIGRATION.md and the landing page | Open |
 | [ELEC-3](#elec-3) | low | plausible | `quitting=true` is set before quitAndInstall and never reset when the install fails | Open |
 | [ELEC-4](#elec-4) | low | confirmed | Later failing update check hides 'Restart to update' for an already-downloaded update, and the fallback flag is sticky | Fixed (8e96f4c) |
@@ -459,7 +459,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **docs/API.md contradicts the code in several places** · low · confirmed · `docs/API.md:19`
 
-- **Status:** Fixed (docs pass)
+- **Status:** Fixed (622c602)
 - **What happens:** (1) Line 19 says 'Credit grants are atomic and idempotent by invoice ID' and 'positive balance' is required for billable paths, but grant_invoice and credit_grants were dropped in 003 and METERING=false skips the balance check. (2) POST /answers (line 14) lists modes without 'walkthrough', omits topic, language and the SSE `step` event, and omits the X-OpenAI-Key header. Without that header any non-owner gets 402. (3) The WS `start` (line 15) omits `openaiKey`, required for non-owners (index.ts:220), and the audio limits (<=48000 bytes per message, real-time budget). (4) GET /account omits `metered` (index.ts:137). (5) Nothing documents the 402 'key rejected' semantics, the 5 MB JSON cap against 'up to four images', or that errors after headers flush arrive as 200 + `event: error`.
 - **Verifier:** docs/API.md matches every claimed drift. Line 19 still says credit grants are idempotent by invoice ID (grant_invoice dropped in 003). Line 14 lists modes without walkthrough and omits topic, language, the `step` event and X-OpenAI-Key. Line 15 omits `openaiKey`. Line 8 omits `metered`. Documentation only.
 - **Test (unit):** scripts/docs.test.mjs: regex the `app.(get|post|put|delete)('...')` routes and WS message types out of apps/api/src/index.ts and assert each appears in docs/API.md. Assert the doc does not contain 'invoice' or 'Credit grants'. Assert `X-OpenAI-Key`, `walkthrough` and `openaiKey` are documented.
@@ -603,7 +603,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **docs/API.md no longer matches the API (walkthrough mode, key header, metering, credits)** · low · confirmed · `docs/API.md:14`
 
-- **Status:** Fixed (docs pass)
+- **Status:** Fixed (622c602)
 - **What happens:** Line 14 lists four modes, but the code also accepts 'walkthrough' with topic and language (index.ts:168-170) and emits `step` events, none of which are documented. The X-OpenAI-Key header on /answers and the openaiKey field on the WS start message (index.ts:177, 220), without which non-owners get 402, are missing at lines 14-15. /account omits `metered` (index.ts:137). Line 19 says 'All billable AI paths require ... positive balance. Credit grants are atomic and idempotent by invoice ID', but grant_invoice and credit_grants were dropped in migration 003, and with METERING=false no positive balance is required. Rate limits (120/min per user, 12/min for answers, 6/min for handoff) are undocumented even though the dashboard heartbeat shares the 120/min bucket.
 - **Verifier:** Every claim checks against the source. docs/API.md:14 lists four modes, but index.ts:168 also accepts 'walkthrough' with topic and language. Neither X-OpenAI-Key nor the WS openaiKey field is documented. /account omits metered (index.ts:137). Line 19 still promises idempotent credit grants by invoice ID, but migration 003 dropped grant_invoice and credit_grants, and with METERING=false no positive balance is required. Rate limits are undocumented. Documentation drift only.
 - **Test (integration):** Add scripts/docs-contract.test.mjs that parses the bullet list in docs/API.md and asserts every documented route exists in apps/api/src/index.ts and that each accepted `mode` string in the code appears in the doc. Cheaper: a review checklist item in the release process.
