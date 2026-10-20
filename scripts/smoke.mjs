@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
 import { setTimeout as wait } from 'node:timers/promises';
@@ -36,6 +36,12 @@ try {
   assert(ready, `API startup failed: ${logs}`);
   assert.equal((await (await request('/health', 'GET', undefined, false)).json()).mode, 'demo');
   assert.equal((await request('/account', 'GET', undefined, false)).ok, false);
+  // Browsers may call the API only from the website, the dev renderer or the packaged app (Origin "null").
+  const from = origin => fetch(base + '/health', { headers: { Origin: origin } });
+  const denied = await from('https://evil.example');
+  assert.deepEqual([denied.status, await denied.json()], [403, { error: 'Origin denied' }]);
+  assert.equal((await from('http://localhost:3000')).headers.get('access-control-allow-origin'), 'http://localhost:3000');
+  assert.equal((await from('null')).status, 200);
   const session = await (await request('/sessions', 'POST', {})).json();
   assert.equal(session.status, 'active');
   assert.equal((await (await request('/sessions', 'POST', {})).json()).id, session.id);
@@ -75,6 +81,12 @@ try {
   assert.equal((await request('/answers', 'POST', { sessionId: session.id, question: 'Explain a hash map.', mode: 'technical' })).status, 409);
   assert.equal((await (await request(`/sessions/${session.id}/resume`, 'POST', {})).json()).status, 'active');
   assert.equal((await (await request(`/sessions/${session.id}/end`, 'POST', {})).json()).status, 'ended');
+  // The API refuses to start on unsafe or invalid settings instead of running half-configured.
+  for (const [setting, message] of [[{ DEMO_MODE: 'true', HOST: '0.0.0.0' }, /Demo must run in development on loopback/], [{ NODE_ENV: 'production', DATABASE_URL: '' }, /Production requires Neon and OpenAI credentials/],
+    [{ PORT: '70000' }, /Invalid PORT/], [{ TRIAL_SECONDS: '-1' }, /Invalid TRIAL_SECONDS/], [{ AUDIO_SILENCE_MS: '50' }, /Invalid audio VAD calibration/], [{ TRUST_PROXY: '9' }, /Invalid TRUST_PROXY/]]) {
+    const started = spawnSync(process.execPath, ['--import', 'tsx', 'apps/api/src/index.ts'], { env: { ...process.env, HOST: '127.0.0.1', PORT: '54399', NODE_ENV: 'test', ...setting }, encoding: 'utf8', timeout: 20000 });
+    assert.notEqual(started.status, 0, JSON.stringify(setting)); assert.match(started.stderr, message);
+  }
   console.log('HTTP/SSE/WebSocket demo smoke passed; no paid services called.');
 } finally {
   socket?.close();

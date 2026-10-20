@@ -101,6 +101,24 @@ async function live() {
     await mock.close();
   }
 }
+// Two connections at once: the first holds its transaction (and row lock) for a second while the second arrives.
+// Session start and token rotation must serialize on the account and token rows instead of double-acting (API-30).
+async function races() {
+  const psql = (...queries) => new Promise((resolve, reject) => {
+    const child = spawn(join(bin, 'psql'), ['-h', socket, '-p', '55432', '-U', 'postgres', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1', '-tAq', ...queries.flatMap(query => ['-c', query])]);
+    let out = '', err = '';
+    child.stdout.on('data', chunk => { out += chunk; }); child.stderr.on('data', chunk => { err += chunk; });
+    child.on('close', code => code === 0 ? resolve(out.trim().split('\n').filter(Boolean)) : reject(new Error(err)));
+  });
+  const race = (first, second) => Promise.all([psql('begin', first, 'select pg_sleep(1)', 'commit'), wait(200).then(() => psql(second))]);
+  const start = "select public.session_action('race-user',null,'start',600,false)->>'id'";
+  const [[held], [late]] = await race(start, start);
+  assert.equal(late, held, 'two concurrent starts created two sessions');
+  assert.deepEqual(await psql("select count(*) from sessions where user_id='race-user' and status='active'"), ['1']);
+  await psql("select public.desktop_token_issue('race-user',null,'race-a1','race-r1')");
+  const [[first], [second]] = await race("select public.desktop_token_rotate('race-r1','race-a2','race-r2')", "select public.desktop_token_rotate('race-r1','race-a3','race-r3')");
+  assert.deepEqual([first, second], ['t', 'f'], 'one refresh token rotated twice');
+}
 try {
   run('initdb', ['-D', data, '-A', 'trust', '--no-locale', '-U', 'postgres']);
   run('pg_ctl', ['-D', data, '-l', join(root, 'server.log'), '-o', `-k ${socket} -h '' -p 55432 -F`, '-w', 'start']);
@@ -110,6 +128,7 @@ try {
     + '\n' + readFileSync('database/migrations/003_remove_payments.sql', 'utf8')
     + '\n' + readFileSync('database/tests/accounting.sql', 'utf8');
   run('psql', ['-h', socket, '-p', '55432', '-U', 'postgres', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1'], sql);
+  await races();
   await live();
   console.log('PostgreSQL migration, accounting, and live API auth assertions passed.');
 } finally {
