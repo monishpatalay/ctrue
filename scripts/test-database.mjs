@@ -93,7 +93,7 @@ async function live() {
     const rejected = await ask({ 'X-OpenAI-Key': 'sk-test-invalid-key-for-ctrue-checks-0000000000' });
     // A bad key is only discovered when OpenAI is called, after the answer stream has started.
     assert.match(rejected.text, /event: error[\s\S]*Your OpenAI API key was rejected/);
-    await contract({ databaseUrl, authBase, token: subject => jwt(origin, subject) });
+    await contract({ databaseUrl, authBase, origin, privateKey, token: subject => jwt(origin, subject) });
   } finally {
     api.kill('SIGTERM');
     if (api.exitCode === null) await once(api, 'exit');

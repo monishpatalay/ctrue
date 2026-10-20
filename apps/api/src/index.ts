@@ -57,7 +57,7 @@ async function authenticate(token:string):Promise<User> {
       if(!payload.sub)throw new errors.JWTInvalid('Missing subject');
       return {id:payload.sub,email:typeof payload.email==='string'?payload.email:undefined,desktop:false};
     } catch(e) {
-      if(e instanceof errors.JOSEError&&!(e instanceof errors.JWKSTimeout)&&e.code!=='ERR_JOSE_GENERIC')throw new HttpError(401,'Sign in again');
+      if(e instanceof errors.JOSEError&&!(e instanceof errors.JWKSTimeout)&&!(e instanceof errors.JWKSInvalid)&&e.code!=='ERR_JOSE_GENERIC')throw new HttpError(401,'Sign in again');
       console.error('Neon Auth key lookup failed:',e instanceof Error?e.message:e);throw new HttpError(503,'Authentication service unavailable');
     }
   }
@@ -208,7 +208,9 @@ app.post('/answers',async(req,res,next)=>{
 app.use((err:unknown,_req:Request,res:Response,_next:NextFunction)=>{const status=typeof err==='object'&&err!==null&&'status' in err?err.status:undefined;const error=err instanceof HttpError?err:err instanceof multer.MulterError?new HttpError(400,'File exceeds upload limits'):status===413?new HttpError(413,'Request exceeds size limit'):status===400?new HttpError(400,'Invalid JSON'):new HttpError(500,'Request failed');if(!res.headersSent)res.status(error.status).json({error:error.message});});
 
 const server=createServer(app),wss=new WebSocketServer({server,path:'/transcription',maxPayload:100000});
-const transcribing=new Set<string>();
+// The newest transcription for a user replaces any older one: after a network switch the old socket may linger
+// half-open for minutes, and refusing the new one would leave the user unable to listen.
+const transcribing=new Map<string,WebSocket>();
 wss.on('connection',(socket,req)=>{
   if(!originAllowed(req.headers.origin)){socket.close(1008,'Origin denied');return;}
   let uid:string|undefined, sessionId:string|undefined, provider:WebSocket|undefined,started=false,ready=false,busy=false,checking=false;
@@ -224,11 +226,11 @@ wss.on('connection',(socket,req)=>{
         if(busy)throw new HttpError(400,'Wait for ready');busy=true;
         if(message.type!=='start')throw new HttpError(400,'Start message required');
         const u=await authenticate(string(message.accessToken,'access token',8000));rate(`ws:${u.id}`,6);sessionId=uuid(message.sessionId);await active(u.id,sessionId);
-        if(transcribing.has(u.id))throw new HttpError(409,'Transcription is already active');
-        uid=u.id;transcribing.add(uid);
+        transcribing.get(u.id)?.close(4001,'Replaced by a newer transcription');
+        uid=u.id;transcribing.set(uid,socket);
         const key=await aiKey(u.id,message.openaiKey);
         started=true;clearTimeout(startup);
-        if(socket.readyState!==WebSocket.OPEN){transcribing.delete(uid);return;}
+        if(socket.readyState!==WebSocket.OPEN){if(transcribing.get(uid)===socket)transcribing.delete(uid);return;}
         if(demo){ready=true;send({type:'ready'});send({type:'final',id:'demo-1',text:'[DEMO — no audio transcription] Tell me about a project you built.'});return;}
         // OPENAI_REALTIME_URL points the relay at a local stand-in for tests, as OPENAI_BASE_URL does for answers.
         provider=new WebSocket(env.OPENAI_REALTIME_URL||'wss://api.openai.com/v1/realtime?intent=transcription',{headers:{Authorization:`Bearer ${key}`}});
@@ -246,7 +248,7 @@ wss.on('connection',(socket,req)=>{
       }
     }catch(e){fail(e instanceof HttpError?e.message:'Invalid transcription message');}
   });
-  socket.on('error',()=>socket.close());socket.on('close',()=>{clearTimeout(startup);clearInterval(lease);if(uid)transcribing.delete(uid);provider?.close();});
+  socket.on('error',()=>socket.close());socket.on('close',()=>{clearTimeout(startup);clearInterval(lease);if(uid&&transcribing.get(uid)===socket)transcribing.delete(uid);provider?.close();});
 });
 server.listen(port,host,()=>console.log(`Ctrue API ${demo?'DEMO (no paid services)':'live'} http://${host}:${port}`));
 for(const signal of ['SIGINT','SIGTERM'] as const)process.on(signal,()=>{for(const socket of wss.clients)socket.close(1001,'API shutting down');server.close(()=>process.exit(0));setTimeout(()=>process.exit(0),2000).unref();});

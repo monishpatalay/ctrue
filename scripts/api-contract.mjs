@@ -4,6 +4,8 @@ import { once } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import { setTimeout as wait } from 'node:timers/promises';
+import { SignJWT } from 'jose';
+import WebSocketClient from 'ws';
 import { startMockOpenAI } from './mock-openai.mjs';
 
 // API contract and abuse cases against the real API, the disposable PostgreSQL cluster and a local OpenAI stand-in.
@@ -12,15 +14,25 @@ const PORT = 55434, base = `http://127.0.0.1:${PORT}`, KEY = 'sk-test-valid-key-
 const SPEECH = Buffer.alloc(9600), SILENCE = Buffer.alloc(9600); // 200 ms of 24 kHz PCM16 each
 for (let i = 0; i < SPEECH.length; i += 2) SPEECH.writeInt16LE(3000, i);
 
-export async function contract({ databaseUrl, authBase, token }) {
-  const mock = await startMockOpenAI();
-  const api = spawn(process.execPath, ['--import', 'tsx', 'apps/api/src/index.ts'], {
-    env: { ...process.env, ...mock.env, PORT: String(PORT), HOST: '127.0.0.1', DEMO_MODE: 'false', NODE_ENV: 'test', METERING: 'false', TRUST_PROXY: '1', OPENAI_API_KEY: '', DATABASE_URL: databaseUrl, NEON_AUTH_BASE_URL: authBase },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+// Starts an API process with these settings and waits until it answers.
+async function launch(port, env) {
+  const api = spawn(process.execPath, ['--import', 'tsx', 'apps/api/src/index.ts'], { env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', NODE_ENV: 'test', DEMO_MODE: 'false', METERING: 'false', OPENAI_API_KEY: '', ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
   let logs = '';
   api.stdout.on('data', chunk => { logs += chunk; });
   api.stderr.on('data', chunk => { logs += chunk; });
+  const stop = async () => { api.kill('SIGTERM'); if (api.exitCode === null) await once(api, 'exit'); };
+  for (let i = 0; i < 50; i++) {
+    if (api.exitCode !== null) throw new Error(`API exited: ${logs}`);
+    if (await fetch(`http://127.0.0.1:${port}/health`).then(r => r.ok, () => false)) return { stop };
+    await wait(100);
+  }
+  await stop();
+  throw new Error(`API did not start: ${logs}`);
+}
+
+export async function contract({ databaseUrl, authBase, token, origin, privateKey }) {
+  const mock = await startMockOpenAI();
+  const settings = { ...mock.env, TRUST_PROXY: '1', DATABASE_URL: databaseUrl, NEON_AUTH_BASE_URL: authBase };
   const call = async (path, bearer, body, { method = body === undefined ? 'GET' : 'POST', headers = {} } = {}) => {
     const response = await fetch(base + path, { method, signal: AbortSignal.timeout(10000), body: body === undefined ? undefined : JSON.stringify(body),
       headers: { 'Content-Type': 'application/json', ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}), ...headers } });
@@ -124,6 +136,68 @@ export async function contract({ databaseUrl, authBase, token }) {
     socket.send(JSON.stringify({ type: 'start', accessToken: who.bearer, sessionId: who.session.id, openaiKey: 'sk-invalid-key-for-ctrue-0000000000000' }));
     assert.match(await Promise.race([error, wait(3000, 'timed out')]), /rejected/);
   });
+  it('forged, expired or misaddressed browser tokens are refused', async () => {
+    const sign = ({ subject = 'contract-forger', issuer = origin, expires = '15m', alg = 'EdDSA', key = privateKey } = {}) => {
+      const jwt = new SignJWT({}).setProtectedHeader({ alg, kid: 'test' }).setIssuer(issuer).setAudience(origin).setExpirationTime(expires);
+      return (subject ? jwt.setSubject(subject) : jwt).sign(key);
+    };
+    const part = value => Buffer.from(JSON.stringify(value)).toString('base64url');
+    const unsigned = `${part({ alg: 'none' })}.${part({ sub: 'contract-forger', iss: origin, aud: origin, exp: Math.floor(Date.now() / 1000) + 600 })}.`;
+    const forged = [['alg none', unsigned], ['another issuer', await sign({ issuer: 'https://evil.example' })], ['expired', await sign({ expires: Math.floor(Date.now() / 1000) - 60 })],
+      ['no subject', await sign({ subject: '' })], ['HS256 with a guessable secret', await sign({ alg: 'HS256', key: new TextEncoder().encode('a shared secret anyone could guess') })]];
+    for (const [name, bearer] of forged) assert.equal((await call('/account', bearer)).status, 401, name);
+  });
+  it('a sign-in key service that is down or returns junk is an outage (503), not a bad login (API-12)', async () => {
+    for (const [name, keys] of [['junk instead of a key set', `${origin}/broken/`], ['unreachable', 'http://127.0.0.1:9/neondb/auth/']]) {
+      const other = await launch(55435, { ...settings, NEON_AUTH_BASE_URL: keys });
+      try { assert.equal((await fetch('http://127.0.0.1:55435/account', { headers: { Authorization: `Bearer ${await token('contract-jwks')}` } })).status, 503, name); }
+      finally { await other.stop(); }
+    }
+  });
+  it('two refreshes racing with one refresh token: exactly one wins', async () => {
+    const { code } = (await call('/auth/handoff', await token('contract-refresh'), {})).body;
+    const pair = (await call('/auth/redeem', null, { code })).body;
+    const statuses = await Promise.all([1, 2].map(() => call('/auth/refresh', null, { refreshToken: pair.refreshToken }).then(r => r.status)));
+    assert.deepEqual(statuses.sort(), [200, 401]);
+  });
+  it("one user cannot touch another user's session; one active session; an ended session stays ended", async () => {
+    const a = await user(), b = await user();
+    assert.equal((await call(`/sessions/${a.session.id}/pause`, b.bearer, {})).status, 404);
+    await call(`/sessions/${a.session.id}/pause`, a.bearer, {});
+    const second = (await call('/sessions', a.bearer, {})).body;
+    assert.equal((await call(`/sessions/${a.session.id}/resume`, a.bearer, {})).status, 409);
+    await call(`/sessions/${second.id}/end`, a.bearer, {});
+    assert.equal((await call(`/sessions/${second.id}/resume`, a.bearer, {})).body.status, 'ended');
+  });
+  // A transcription socket with optional Origin, recording what arrives and how it closes.
+  const listen = async (who, from) => {
+    const socket = new WebSocketClient(`${base.replace('http', 'ws')}/transcription`, from ? { origin: from } : {}), seen = [];
+    let closed = null;
+    socket.on('message', raw => seen.push(JSON.parse(raw.toString())));
+    socket.on('close', code => { closed = code; });
+    await once(socket, 'open');
+    const until = async test => { for (let i = 0; i < 150 && !test(); i++) await wait(20); assert(test(), JSON.stringify({ seen, closed })); };
+    return { socket, seen, closed: () => closed, until, send: value => socket.send(JSON.stringify(value)),
+      start: () => socket.send(JSON.stringify({ type: 'start', accessToken: who.bearer, sessionId: who.session.id, openaiKey: KEY })) };
+  };
+  const ready = async who => { const t = await listen(who); t.start(); await t.until(() => t.seen.some(m => m.type === 'ready')); return t; };
+  const refused = async (t, reason) => { await t.until(() => t.closed() !== null); assert.match(t.seen.find(m => m.type === 'error')?.error || '', reason); };
+  it('transcription refuses other websites, early audio and malformed or faster-than-live audio', async () => {
+    const evil = await listen(await user(), 'https://evil.example');
+    await evil.until(() => evil.closed() === 1008);
+    const early = await listen(await user()); early.start(); early.send({ type: 'audio', data: SPEECH.toString('base64') });
+    await refused(early, /Wait for ready/);
+    let t = await ready(await user()); t.send({ type: 'audio', data: '@@@@' }); await refused(t, /Invalid base64/);
+    t = await ready(await user()); t.send({ type: 'audio', data: Buffer.alloc(3).toString('base64') }); await refused(t, /at most one second/);
+    t = await ready(await user()); t.send({ type: 'audio', data: Buffer.alloc(48002).toString('base64') }); await refused(t, /at most one second/);
+    t = await ready(await user()); for (let i = 0; i < 11; i++) t.send({ type: 'audio', data: Buffer.alloc(48000).toString('base64') }); await refused(t, /exceeds realtime/);
+  });
+  it('a newer transcription replaces an older one for the same user (API-13)', async () => {
+    const who = await user(), first = await ready(who), second = await ready(who);
+    await first.until(() => first.closed() === 4001);
+    assert.equal(second.closed(), null);
+    second.socket.close();
+  });
   // Last: it fills this address's request budget.
   it('a flood of bad tokens from one address is throttled without slowing other users (API-1)', async () => {
     const legit = await user();
@@ -136,21 +210,14 @@ export async function contract({ databaseUrl, authBase, token }) {
   });
 
   const failures = [];
+  const api = await launch(PORT, settings);
   try {
-    let ready = false;
-    for (let i = 0; i < 50 && !ready; i++) {
-      if (api.exitCode !== null) throw new Error(`Contract API exited: ${logs}`);
-      ready = await fetch(`${base}/health`).then(r => r.ok, () => false);
-      if (!ready) await wait(100);
-    }
-    assert(ready, `Contract API did not start: ${logs}`);
     for (const { name, fn } of cases) {
       try { await fn(); console.log(`  ✔ ${name}`); }
       catch (error) { failures.push(name); console.log(`  ✖ ${name}\n    ${String(error.message).split('\n').slice(0, 4).join('\n    ')}`); }
     }
   } finally {
-    api.kill('SIGTERM');
-    if (api.exitCode === null) await once(api, 'exit');
+    await api.stop();
     await mock.close();
   }
   if (failures.length) throw new Error(`${failures.length} of ${cases.length} API contract cases failed`);
