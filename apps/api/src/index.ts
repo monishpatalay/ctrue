@@ -149,7 +149,7 @@ const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:8_000_000,f
 app.post('/profile/import',upload.single('file'),async(req,res)=>{
   const file=req.file;if(!file)throw new HttpError(400,'Choose a PDF or DOCX file');let facts:string;
   try {
-    if(file.originalname.toLowerCase().endsWith('.pdf')&&file.buffer.subarray(0,5).toString()==='%PDF-')facts=(await pdf(file.buffer)).text;
+    if(file.originalname.toLowerCase().endsWith('.pdf')&&file.buffer.subarray(0,5).toString()==='%PDF-')facts=(await pdf(new Uint8Array(file.buffer))).text;
     else if(file.originalname.toLowerCase().endsWith('.docx')&&file.buffer.subarray(0,2).toString()==='PK'){docxSize(file.buffer);facts=(await mammoth.extractRawText({buffer:file.buffer})).value;}
     else throw new HttpError(400,'Expected PDF or DOCX');
   }catch(e){if(e instanceof HttpError)throw e;throw new HttpError(400,'Could not extract this document');}

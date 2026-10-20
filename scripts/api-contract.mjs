@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { readFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import { setTimeout as wait } from 'node:timers/promises';
 import { startMockOpenAI } from './mock-openai.mjs';
@@ -86,6 +87,23 @@ export async function contract({ databaseUrl, authBase, token }) {
     assert.notEqual(next.status, 409, 'the abandoned answer still holds the lock');
     await wait(500);
     assert.equal(mock.state.open, 0, 'the abandoned answer is still streaming from OpenAI on the user\'s key');
+  });
+  const upload = async (who, name, bytes) => {
+    const form = new FormData(); form.set('file', new Blob([bytes]), name);
+    const response = await fetch(`${base}/profile/import`, { method: 'POST', body: form, headers: { Authorization: `Bearer ${who.bearer}` }, signal: AbortSignal.timeout(10000) });
+    return { status: response.status, body: await response.json() };
+  };
+  it('a PDF and a Word resume import as text for review (API-31)', async () => {
+    const who = await user();
+    assert.deepEqual(await upload(who, 'resume.pdf', readFileSync('e2e/fixtures/resume.pdf')), { status: 200, body: { facts: 'Built a calendar app used by 2,000 students.' } });
+    assert.deepEqual(await upload(who, 'resume.docx', readFileSync('e2e/fixtures/resume.docx')), { status: 200, body: { facts: 'Led a team of four to ship a payments API.' } });
+  });
+  it('uploads that are not a resume, or are too large, are refused with a reason', async () => {
+    const who = await user();
+    assert.deepEqual(await upload(who, 'notes.txt', Buffer.from('hello')), { status: 400, body: { error: 'Expected PDF or DOCX' } });
+    assert.deepEqual(await upload(who, 'resume.pdf', Buffer.from('PK not a pdf')), { status: 400, body: { error: 'Expected PDF or DOCX' } });
+    assert.deepEqual(await upload(who, 'resume.pdf', Buffer.from('%PDF-1.4 broken')), { status: 400, body: { error: 'Could not extract this document' } });
+    assert.deepEqual(await upload(who, 'resume.pdf', Buffer.alloc(8_000_001)), { status: 400, body: { error: 'File exceeds upload limits' } });
   });
   it('transcription relays partial and final text, and commits after speech then silence', async () => {
     const who = await user(), socket = new WebSocket(`${base.replace('http', 'ws')}/transcription`), seen = [];
