@@ -19,7 +19,6 @@ const expected = {
 };
 const failures = [];
 const check = (name, ok, detail = '') => { console.log(`${ok ? '✔' : '✖'} ${name}${!ok && detail ? ` — ${detail}` : ''}`); if (!ok) failures.push(name); };
-const warn = message => console.log(`! ${message}`);
 const run = (command, args) => { const result = spawnSync(command, args, { encoding: 'utf8' }); return { ok: result.status === 0, out: `${result.stdout || ''}${result.stderr || ''}` }; };
 const sha512 = file => createHash('sha512').update(readFileSync(file)).digest('base64');
 // electron-builder's latest-mac.yml: top-level version plus files of url/sha512/size.
@@ -63,10 +62,10 @@ for (const file of local.files) {
   check(`${file.url} exists, with the size and sha512 in latest-mac.yml`, existsSync(path) && readFileSync(path).length === file.size && sha512(path) === file.sha512);
 }
 
-// Not failures yet (a decision in docs/TEST-FINDINGS.md, ELEC-11): runtime hardening of the shipped binary.
-if (!/flags=0x[0-9a-f]*\(.*runtime/.test(run('codesign', ['-dv', app]).out)) warn('no hardened runtime: entitlements are not enforced (ELEC-11)');
+// Hardening (ELEC-11): no other program may run code inside Ctrue and borrow its macOS permissions.
+check('signed with the hardened runtime', /flags=0x[0-9a-f]*\(.*runtime/.test(run('codesign', ['-dv', app]).out));
 const fuses = await getCurrentFuseWire(join(app, 'Contents/MacOS/Ctrue'));
-if (fuses[FuseV1Options.RunAsNode] !== '0'.charCodeAt(0)) warn('RunAsNode fuse is on: ELECTRON_RUN_AS_NODE turns Ctrue into a Node runtime that keeps its macOS permissions (ELEC-11)');
+for (const fuse of ['RunAsNode', 'EnableNodeOptionsEnvironmentVariable', 'EnableNodeCliInspectArguments']) check(`${fuse} fuse is off`, fuses[FuseV1Options[fuse]] === '0'.charCodeAt(0));
 
 if (process.argv.includes('--published')) {
   // What installed copies and the website download right now.

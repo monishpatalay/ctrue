@@ -1,10 +1,8 @@
 // Read-only checks against the live website and API: only GET, HEAD and CORS preflight requests, nothing is written.
-// Hard failures are things that are broken for users now; "!" lines are hardening gaps recorded in docs/TEST-FINDINGS.md.
 const API = process.env.CTRUE_API_URL || 'https://api.ctrue.monishpatalay.dev';
 const WEB = process.env.CTRUE_WEBSITE_URL || 'https://ctrue.monishpatalay.dev';
 const failures = [];
 const check = (name, ok, detail = '') => { console.log(`${ok ? '✔' : '✖'} ${name}${!ok && detail ? ` — ${detail}` : ''}`); if (!ok) failures.push(name); };
-const note = message => console.log(`! ${message}`);
 const get = (url, init = {}) => fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(15000), ...init });
 
 const health = await (await get(`${API}/health`)).json();
@@ -26,9 +24,7 @@ check('downloads page links an https DMG', !!dmg, 'no DMG link (Build locally sh
 if (dmg) check('the DMG link resolves', (await fetch(dmg, { method: 'HEAD', signal: AbortSignal.timeout(15000) })).ok);
 const privacy = await (await get(`${WEB}/privacy`)).text();
 check('privacy policy names a contact for data requests', !privacy.includes('Contact details will be published here before launch.'), 'placeholder shown (LEG-1)');
-for (const header of ['content-security-policy', 'strict-transport-security', 'x-frame-options', 'x-content-type-options', 'referrer-policy']) {
-  if (!home.headers.get(header)) note(`website sends no ${header} header (SEC-1)`);
-}
+for (const header of ['content-security-policy', 'strict-transport-security', 'x-frame-options', 'x-content-type-options', 'referrer-policy']) check(`website sends ${header}`, !!home.headers.get(header));
 
 console.log(failures.length ? `\n${failures.length} production check(s) failed.` : '\nProduction checks passed.');
 process.exit(failures.length ? 1 : 0);

@@ -11,6 +11,9 @@ exports.default = async function adhocSign(context) {
   if (process.env.CTRUE_SIGNED_RELEASE === 'true' && !process.env.CTRUE_SIGN_IDENTITY) throw new Error('CTRUE_SIGNED_RELEASE=true needs CTRUE_SIGN_IDENTITY (the release certificate); an ad hoc signature stops every installed copy from updating.');
   const app = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`);
   // A named certificate keeps the same identity on every build, so permissions and updates carry over; '-' is ad hoc.
-  execFileSync('codesign', ['--force', '--deep', '--sign', process.env.CTRUE_SIGN_IDENTITY || '-', app], { stdio: 'inherit' });
+  // The hardened runtime with these entitlements stops other programs from injecting code into Ctrue to borrow its
+  // screen-recording and microphone permissions.
+  const entitlements = path.join(__dirname, '../build/entitlements.mac.plist');
+  execFileSync('codesign', ['--force', '--deep', '--options', 'runtime', '--entitlements', entitlements, '--sign', process.env.CTRUE_SIGN_IDENTITY || '-', app], { stdio: 'inherit' });
   execFileSync('codesign', ['--verify', '--deep', '--strict', app], { stdio: 'inherit' });
 };

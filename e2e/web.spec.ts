@@ -119,3 +119,9 @@ for (const path of PAGES) {
     }
   });
 }
+
+test('every page is sent with browser safety headers (improvement 11)', async ({ request }) => {
+  const headers = (await request.get('/')).headers();
+  expect(headers).toMatchObject({ 'x-frame-options': 'DENY', 'x-content-type-options': 'nosniff', 'referrer-policy': 'strict-origin-when-cross-origin' });
+  expect(headers['permissions-policy']).toContain('microphone=()');
+});

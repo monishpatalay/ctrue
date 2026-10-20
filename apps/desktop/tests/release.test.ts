@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -25,4 +26,22 @@ test('a signed release will not fall back to an ad hoc signature', async () => {
   try {
     await assert.rejects(sign({ electronPlatformName: 'darwin', appOutDir: '/nonexistent', packager: { appInfo: { productFilename: 'Ctrue' } } }), /needs CTRUE_SIGN_IDENTITY/);
   } finally { process.env = saved; }
+});
+
+test('the shipped app is signed with the hardened runtime and its safety fuses are set (improvement 11)', async () => {
+  const require = createRequire(import.meta.url);
+  const childProcess = require('node:child_process') as typeof import('node:child_process');
+  const original = childProcess.execFileSync, signed: string[][] = [];
+  childProcess.execFileSync = ((_command: string, args: string[]) => { signed.push(args); return Buffer.alloc(0); }) as typeof childProcess.execFileSync;
+  const saved = { ...process.env };
+  try {
+    Object.assign(process.env, { CTRUE_SIGNED_RELEASE: 'true', CTRUE_SIGN_IDENTITY: 'ABC123' });
+    for (const key of ['CSC_LINK', 'CSC_NAME']) delete process.env[key];
+    delete require.cache[require.resolve('../scripts/adhoc-sign.cjs')];
+    await require('../scripts/adhoc-sign.cjs').default({ electronPlatformName: 'darwin', appOutDir: '/tmp/out', packager: { appInfo: { productFilename: 'Ctrue' } } });
+  } finally { childProcess.execFileSync = original; process.env = saved; }
+  assert.deepEqual(signed[0].slice(0, 5), ['--force', '--deep', '--options', 'runtime', '--entitlements']);
+  assert.match(signed[0][5], /build\/entitlements\.mac\.plist$/);
+  const { electronFuses } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).build;
+  assert.deepEqual(electronFuses, { runAsNode: false, enableNodeOptionsEnvironmentVariable: false, enableNodeCliInspectArguments: false });
 });
