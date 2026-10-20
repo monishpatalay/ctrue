@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { defaultShortcuts, isNewerVersion, parseHandoff, trustedService, validateShortcuts } from '../electron/security';
-import { acceleratorFrom, heardSince, isNewProblem, parseMarkdown, prettyShortcut, readEvents, recentSpeech, updateTranscript } from '../src/api';
+import { acceleratorFrom, formatTime, heardSince, isEnglish, isNewProblem, parseMarkdown, prettyShortcut, readEvents, recentSpeech, updateTranscript } from '../src/api';
 import { encodePCM16 } from '../public/pcm-worklet.js';
 import { buildCode, resumeContext, stepsMatchFinal, type WalkStep } from '../src/steps';
 
@@ -129,4 +129,39 @@ test('a spoken question mid-walkthrough is a new problem only when it names one'
   // Ordinary follow-ups use the same verbs with a lowercase word after them; only a name ("design Uber") or "a/an" starts a new problem.
   for (const text of ['How would you design the cache layer?', 'Can you write the tests for this?', 'Why did you code it this way?', 'Could you solve it without extra memory?', 'Can you implement this recursively?', 'Would you write any code differently?']) assert.equal(isNewProblem(text), false, text);
   for (const text of ['Design a URL shortener', 'Implement LRU cache', 'Build Twitter']) assert.equal(isNewProblem(text), true, text);
+});
+
+test('the website renders answers with exactly the same Markdown parser as the desktop', async () => {
+  const { parseMarkdown: website } = await import('../../web/components/markdown');
+  const corpus = ['Use a hash map.\nIt is O(n).\n\n### Steps\n1. **Scan:** once\n2. Look up\n   - nested\n3. Done\n---\n```python\nfor i in x:\n    pass', '* star\n• bullet\n1) paren\n\n\npara one\n\npara two\r\n***', '```\nunclosed fence still streaming', '#no-space heading\n####### seven\n- `code` and **bold**'];
+  for (const text of corpus) assert.deepEqual(website(text), parseMarkdown(text), text);
+});
+
+test('answer streams: multi-line data, error events and a stream with no events', async () => {
+  const seen: unknown[] = [];
+  await readEvents(new Response('event: token\ndata: {"text":\ndata: "two lines"}\n\nevent: done\ndata: {}\n\n'), (event, value) => seen.push([event, value]));
+  assert.deepEqual(seen, [['token', { text: 'two lines' }], ['done', {}]]);
+  await assert.rejects(() => readEvents(new Response('event: error\ndata: {"error":"Your OpenAI API key was rejected"}\n\n'), () => {}), /key was rejected/);
+  await assert.rejects(() => readEvents(new Response(''), () => {}), /disconnected/);
+});
+
+test('Markdown keeps list kinds apart and joins wrapped lines into one paragraph', () => {
+  assert.deepEqual(parseMarkdown('- a\n1. b\n- c').map(b => b.type === 'list' && b.ordered), [false, true, false]);
+  assert.deepEqual(parseMarkdown('one\ntwo\n\nthree'), [{ type: 'text', text: 'one two' }, { type: 'text', text: 'three' }]);
+  assert.deepEqual(parseMarkdown('<img src=x onerror=alert(1)>'), [{ type: 'text', text: '<img src=x onerror=alert(1)>' }], 'HTML stays text');
+});
+
+test('small display helpers', () => {
+  assert.equal(formatTime(0), '00:00'); assert.equal(formatTime(61.9), '01:01'); assert.equal(formatTime(-5), '00:00'); assert.equal(formatTime(3600), '60:00');
+  assert.equal(prettyShortcut('Alt+Shift+N'), '⌥ ⇧ N'); assert.equal(prettyShortcut('Control+F5'), '⌃ F5');
+  assert.equal(isEnglish('Café — naïve “quotes” €5'), true); assert.equal(isEnglish('こんにちは'), false);
+});
+
+test('sign-in links and service addresses: the remaining edge cases', () => {
+  const code = 'a'.repeat(43);
+  for (const link of [`ctrue://auth?code=${code}#x`, `ctrue://user:pw@auth?code=${code}`, `ctrue://auth?code=${'a'.repeat(129)}`, `ctrue://auth?code=${code}${'&x'.repeat(260)}`, 42]) assert.throws(() => parseHandoff(link), /Invalid login link/);
+  assert.equal(trustedService('http://[::1]:4318/path'), 'http://[::1]:4318');
+  assert.throws(() => trustedService('https://api.example.com/?debug=1'));
+  assert.throws(() => trustedService('file:///etc/passwd'));
+  assert.equal(isNewerVersion('0.1', '0.1.0'), false); assert.equal(isNewerVersion('0.1.0.1', '0.1'), true);
 });

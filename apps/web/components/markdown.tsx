@@ -1,7 +1,7 @@
 // The same small Markdown subset the desktop app renders (apps/desktop/src/api.ts and Markdown.tsx); the two apps
 // share no package, so keep them in step. Builds React elements, never HTML strings.
 type Block = { type: 'code' | 'heading' | 'text'; text: string } | { type: 'list'; ordered: boolean; start: number; items: string[] } | { type: 'rule' };
-function parseMarkdown(source: string): Block[] {
+export function parseMarkdown(source: string): Block[] {
   const blocks: Block[] = [];
   const lines = source.replace(/\r\n/g, '\n').split('\n');
   for (let i = 0; i < lines.length; i++) {

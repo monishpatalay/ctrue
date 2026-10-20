@@ -101,3 +101,49 @@ test('walkthrough steps are validated and the prompt treats the problem as data'
   assert.match(walkPrompt('coding','Go'),/Language: Go/);
   assert.match(walkPrompt('system-design',''),/breaks = what goes wrong later without it/);
 });
+test('screenshots must be PNG, JPEG or WEBP data URLs',()=>{
+  for(const ok of ['data:image/png;base64,iVBORw0KGgo=','data:image/jpeg;base64,/9j/4AAQ','data:image/webp;base64,UklGRg==']) assert.equal(imageData(ok),ok);
+  for(const bad of ['data:image/svg+xml;base64,PHN2Zz4=','data:image/gif;base64,R0lGOD==','data:image/png;base64,abc def','data:text/html;base64,PGI+','']) assert.throws(()=>imageData(bad),/Expected|Invalid/,bad);
+  assert.equal(imageData(undefined),undefined);
+});
+test('pending sign-ins are capped at 1000 and expired codes make room',()=>{
+  let now=0;const h=new Handoffs<{id:string}>(()=>now);
+  for(let i=0;i<1000;i++)h.issue({id:`u${i}`});
+  assert.throws(()=>h.issue({id:'one-more'}),/Too many pending/);
+  now=60000;assert.doesNotThrow(()=>h.issue({id:'after-expiry'}));
+  assert.throws(()=>h.redeem('A'.repeat(64)),/Invalid handoff code/);
+});
+test('the step scanner copes with escaped backslashes, nested arrays and text before the steps',()=>{
+  const step={kind:'step',phase:'brute',title:'Path',say:'Windows paths end in a backslash.',code:'print("C:\\\\")  # ["not", {"a": "step"}]',action:'add',replaces:null,why:null,breaks:null,details:'- [x] done'};
+  const json=JSON.stringify({steps:[step,{...step,title:'Two'}]});
+  for(const size of [1,2,5]){const scanner=new StepScanner(),found:unknown[]=[];for(let i=0;i<json.length;i+=size)found.push(...scanner.push(json.slice(i,i+size)));assert.deepEqual(found,[step,{...step,title:'Two'}],`chunk ${size}`);}
+});
+test('walkthrough steps over any field limit are refused',()=>{
+  const ok={kind:'step',phase:'design',title:'T',say:'S',code:null,action:'add',replaces:null,why:null,breaks:null,details:null};
+  for(const [field,max] of [['title',200],['say',2000],['code',20000],['replaces',8000],['why',1000],['breaks',1000],['details',8000]] as const){
+    assert.notEqual(toWalkStep({...ok,[field]:'x'.repeat(max)}),null,`${field} at its limit`);
+    assert.equal(toWalkStep({...ok,[field]:'x'.repeat(max+1)}),null,`${field} over its limit`);
+  }
+  assert.equal(toWalkStep({...ok,title:'   '}),null);assert.equal(toWalkStep({...ok,phase:'optimal ',}),null);assert.equal(toWalkStep(null),null);
+});
+test('an OpenAI key longer than 300 characters is refused before use',()=>{
+  assert.equal(openaiKey('sk-'+'a'.repeat(297)).length,300);
+  assert.throws(()=>openaiKey('sk-'+'a'.repeat(298)));
+});
+test('DOCX archives that are encrypted, use other compression or hold too many entries are refused',()=>{
+  function archive(entries:number, flags=0, method=8){
+    const locals:Buffer[]=[],centrals:Buffer[]=[];let offset=0;
+    for(let n=0;n<entries;n++){
+      const data=method===8?deflateRawSync(Buffer.from('x')):Buffer.from('x');
+      const local=Buffer.alloc(30);local.writeUInt32LE(0x04034b50);local.writeUInt16LE(flags,6);local.writeUInt16LE(method,8);local.writeUInt32LE(data.length,18);local.writeUInt32LE(1,22);
+      const central=Buffer.alloc(46);central.writeUInt32LE(0x02014b50);central.writeUInt16LE(flags,8);central.writeUInt16LE(method,10);central.writeUInt32LE(data.length,20);central.writeUInt32LE(1,24);central.writeUInt32LE(offset,42);
+      locals.push(local,data);centrals.push(central);offset+=local.length+data.length;
+    }
+    const directory=Buffer.concat(centrals),end=Buffer.alloc(22);end.writeUInt32LE(0x06054b50);end.writeUInt16LE(entries,8);end.writeUInt16LE(entries,10);end.writeUInt32LE(directory.length,12);end.writeUInt32LE(offset,16);
+    return Buffer.concat([...locals,directory,end]);
+  }
+  assert.doesNotThrow(()=>docxSize(archive(3)));
+  assert.throws(()=>docxSize(archive(2001)),/too many entries/);
+  assert.throws(()=>docxSize(archive(1,1)),/Invalid DOCX/);
+  assert.throws(()=>docxSize(archive(1,0,12)),/Invalid DOCX/);
+});
