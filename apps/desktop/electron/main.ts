@@ -1,7 +1,6 @@
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, safeStorage, screen, session, shell, systemPreferences, Tray } from 'electron';
 import { readFile, writeFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { autoUpdater } from 'electron-updater';
 import { defaultShortcuts, isNewerVersion, parseHandoff, trustedService, validateShortcuts, type Action } from './security';
 
@@ -51,9 +50,13 @@ function showPopup() {
   popup.setPosition(area.x + area.width - popup.getSize()[0] - 24, area.y + 24);
   popup.showInactive();
 }
+// Only the top frame of Ctrue's own two windows, showing the app's own page (file:// when packaged, the dev server in
+// development). Navigation away is blocked, so that frame can only hold Ctrue's page. Comparing file paths instead
+// broke on Windows, where the same folder can be spelled differently (short names, drive-letter case).
 function assertSender(event: Electron.IpcMainInvokeEvent) {
-  const url = event.senderFrame?.url;
-  if ((event.sender !== window.webContents && event.sender !== popup?.webContents) || !url || (rendererURL ? new URL(url).origin !== new URL(rendererURL).origin : url.split('#')[0] !== pathToFileURL(path.join(__dirname, '../dist/index.html')).href)) throw new Error('Untrusted application frame.');
+  const frame = event.senderFrame, url = frame?.url;
+  const own = [window, popup].some(target => target && event.sender === target.webContents && frame?.routingId === target.webContents.mainFrame.routingId && frame.processId === target.webContents.mainFrame.processId);
+  if (!own || !url || (rendererURL ? new URL(url).origin !== new URL(rendererURL).origin : new URL(url).protocol !== 'file:')) throw new Error('Untrusted application frame.');
 }
 function ipc(channel: string, handler: (...args: unknown[]) => unknown) { ipcMain.handle(channel, (event, ...args) => { assertSender(event); return handler(...args); }); }
 function writeCredentials<T>(operation: () => Promise<T>): Promise<T> {
