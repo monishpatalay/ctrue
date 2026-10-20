@@ -1,4 +1,31 @@
-# Verification — October 13, 2026
+# Verification — October 20, 2026
+
+A full test pass of the three apps, the database and the release flow, run against `d01e6a5` (Ctrue 0.1.9) and the fixes that followed it. Every finding is in [TEST-FINDINGS.md](TEST-FINDINGS.md): 111 from a read-only review whose findings were then checked by independent skeptics, plus 2 found by the new tests. 44 are fixed; each fix had a failing test first.
+
+## How to check
+
+| Command | What it covers | Result |
+| --- | --- | --- |
+| `npm run typecheck` | All three apps | Passed |
+| `npm run test:coverage` | 41 unit tests (API core, desktop helpers and release guards, website SSE parser, dev launcher), with coverage | Passed; 96% lines and 92% branches across the core modules |
+| `npm run test:smoke` | Demo API over HTTP, SSE and WebSocket; CORS; refusal to start on unsafe settings | Passed |
+| `npm run test:database` | Migrations and accounting in disposable PostgreSQL, two-connection races, the live API with local JWKS, and 20 API contract cases against a local OpenAI stand-in | Passed |
+| `npm run test:e2e` | 47 Playwright cases: website (16), desktop renderer (17), pop-up (7), the real Electron app (7) | Passed |
+| `npm run test:load` | Live users at a 70 ms database round trip (Render Oregon to Neon us-east-2) | p95 79 ms at 25 users, 185 ms at 75, 2.1 s at 150, no failures |
+| `npm run verify:release -- --published` | The 0.1.9 build and what users download | Passed; warns that the app has no hardened runtime and the RunAsNode fuse is on (ELEC-11) |
+| `npm run probe:production` | Read-only checks of the live API and website | One failure: the privacy policy still shows the contact placeholder (LEG-1); no CSP, frame, nosniff or referrer headers (SEC-1) |
+| `npm audit --workspaces` | Dependencies | 10 moderate, all `sprintf-js` through build tools (electron-builder) and mammoth's command line; none on a request path |
+| Secret scan of every build output and the packaged app | Keys, database URLs, cookie secrets | None found |
+
+CI (`check.yml`) now runs coverage and the website and renderer E2E suites. The Electron E2E project and `test:ai` need macOS and run locally.
+
+## Pending
+
+- `CTRUE_TEST_OPENAI_KEY=sk-… npm run test:ai`: real answers in every mode, a prompt injection, a walkthrough and live transcription, paid by your key (a few cents). Not yet run.
+- The [device checklist](CAPTURE-MATRIX.md): capture, permissions, meeting apps, sleep, and a real 0.1.9 → 0.1.10 update. Needs a person and a build with these fixes.
+- Open findings that need a decision: no hardened runtime or fuses (ELEC-11), website security headers (SEC-1), contact address (LEG-1), API and database regions (API-16), filler questions answered automatically (REN-8), and the rest marked *Open* in the findings.
+
+# Verification — October 13, 2026 (earlier record)
 
 ## Neon migration update
 

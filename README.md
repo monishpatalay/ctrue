@@ -75,10 +75,17 @@ To deploy, `render.yaml` describes the API for [Render](https://render.com) and 
 
 ```sh
 npm run typecheck
-npm test
-npm run test:smoke      # demo API over HTTP, SSE and WebSocket
-npm run test:database   # disposable PostgreSQL; needs Postgres installed
+npm test                 # unit tests (npm run test:coverage adds a coverage report)
+npm run test:smoke       # demo API over HTTP, SSE and WebSocket, CORS, startup checks
+npm run test:database    # disposable PostgreSQL, then the API contract suite; needs Postgres installed
+npm run test:e2e         # Playwright: website, desktop renderer, pop-up and the Electron app (macOS)
+npm run test:load        # live users against a 70 ms database round trip
+npm run test:ai          # real OpenAI calls with CTRUE_TEST_OPENAI_KEY (costs a few cents; macOS)
+npm run verify:release   # a built macOS release, before publishing (add -- --published after)
+npm run probe:production # read-only checks of the live site and API
 ```
+
+Results and what is still pending: [docs/VERIFICATION.md](docs/VERIFICATION.md). Findings: [docs/TEST-FINDINGS.md](docs/TEST-FINDINGS.md). Hands-on checks: [docs/CAPTURE-MATRIX.md](docs/CAPTURE-MATRIX.md). Before the first `npm run test:e2e`, run `npx playwright install chromium`.
 
 ## License
 
