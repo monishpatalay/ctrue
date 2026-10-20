@@ -21,7 +21,7 @@ const authBase=env.NEON_AUTH_BASE_URL?.replace(/\/+$/,'');
 const configured={auth:!!(env.DATABASE_URL&&authBase),ai:!!env.OPENAI_API_KEY};
 // Production needs sign-in, the database and an OpenAI key for the owner.
 if(env.NODE_ENV==='production'&&!(configured.auth&&configured.ai)) throw new Error('Production requires Neon and OpenAI credentials');
-const pool=configured.auth?new pg.Pool({connectionString:env.DATABASE_URL,max:10}):null;
+const pool=configured.auth?new pg.Pool({connectionString:env.DATABASE_URL,max:10,connectionTimeoutMillis:10000,query_timeout:10000}):null;
 pool?.on('error',error=>console.error('Database connection error:',error.message));
 // Neon Auth signs browser JWTs with EdDSA; issuer and audience are the Auth URL's origin.
 const jwks=authBase?createRemoteJWKSet(new URL(`${authBase}/.well-known/jwks.json`)):null, issuer=authBase?new URL(authBase).origin:'';
@@ -61,6 +61,8 @@ async function authenticate(token:string):Promise<User> {
       console.error('Neon Auth key lookup failed:',e instanceof Error?e.message:e);throw new HttpError(503,'Authentication service unavailable');
     }
   }
+  // Anything else is refused before it costs a database query.
+  if(!/^[a-f0-9]{64}$/.test(token)) throw new HttpError(401,'Sign in again');
   const [row]=await sql<{user_id:string;email:string|null}>('select user_id,email from desktop_tokens where access_hash=$1 and access_expires>now()',[sha256(token)]);
   if(!row) throw new HttpError(401,'Sign in again');
   return {id:row.user_id,email:row.email??undefined,desktop:true};
@@ -93,6 +95,7 @@ async function aiKey(uid:string,supplied:unknown):Promise<string> {
   return openaiKey(supplied);
 }
 function providerError(e:unknown) {
+  if(e instanceof HttpError)return e;
   const status=typeof e==='object'&&e!==null&&'status' in e?e.status:undefined;
   if(status===401)return new HttpError(402,'Your OpenAI API key was rejected. Check it in Preferences');
   if(status===429)return new HttpError(429,'Your OpenAI account hit its rate limit or has no credit left');
@@ -112,6 +115,8 @@ if(!Number.isInteger(trustedProxies)||trustedProxies<0||trustedProxies>5)throw n
 const app=express();app.disable('x-powered-by');app.set('trust proxy',trustedProxies);
 app.use(cors({origin(origin,cb){cb(originAllowed(origin)?null:new HttpError(403,'Origin denied'),originAllowed(origin));}}));
 app.get('/health',(_req,res)=>res.json({status:'ok',mode:demo?'demo':'live',configured}));
+// Per address, before body parsing or authentication, so a flood of junk cannot starve the database pool.
+app.use((req,_res,next)=>{try{rate(`ip:${req.ip}`,600);next();}catch(e){next(e);}});
 app.use(express.json({limit:'5mb'}));
 app.use((req,_res,next)=>{if(req.body!==undefined&&(req.body===null||typeof req.body!=='object'||Array.isArray(req.body)))next(new HttpError(400,'Expected JSON object'));else {req.body??={};next();}});
 const mint=()=>({accessToken:randomBytes(32).toString('hex'),refreshToken:randomBytes(32).toString('hex')});
@@ -174,8 +179,11 @@ app.post('/answers',async(req,res,next)=>{
     const pictures=supplied.map((value:unknown)=>imageData(value)).filter((value:string|undefined):value is string=>!!value),context=req.body.context===undefined?'':req.body.context;
     if(typeof context!=='string'||context.length>30000)throw new HttpError(400,'Invalid context');
     await active(u.id,id);if(answering.has(u.id))throw new HttpError(409,'Cancel the current answer first');
+    answering.add(u.id);ownsAnswer=true;
     const key=await aiKey(u.id,req.headers['x-openai-key']);
-    answering.add(u.id);ownsAnswer=true;req.on('aborted',()=>abort.abort());res.on('close',()=>abort.abort());
+    req.on('aborted',()=>abort.abort());res.on('close',()=>abort.abort());
+    // A client that left during the checks above already fired 'close', which listeners never see; stop here.
+    if(req.socket.destroyed)return;
     const facts=(await profile(u.id)).facts;
     res.setHeader('Content-Type','text/event-stream');res.setHeader('Cache-Control','no-cache');res.setHeader('X-Accel-Buffering','no');res.flushHeaders();
     const send=(event:string,data:unknown)=>{if(!res.destroyed)res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);};
@@ -217,11 +225,13 @@ wss.on('connection',(socket,req)=>{
         if(message.type!=='start')throw new HttpError(400,'Start message required');
         const u=await authenticate(string(message.accessToken,'access token',8000));rate(`ws:${u.id}`,6);sessionId=uuid(message.sessionId);await active(u.id,sessionId);
         if(transcribing.has(u.id))throw new HttpError(409,'Transcription is already active');
+        uid=u.id;transcribing.add(uid);
         const key=await aiKey(u.id,message.openaiKey);
-        uid=u.id;transcribing.add(uid);started=true;clearTimeout(startup);
+        started=true;clearTimeout(startup);
         if(socket.readyState!==WebSocket.OPEN){transcribing.delete(uid);return;}
         if(demo){ready=true;send({type:'ready'});send({type:'final',id:'demo-1',text:'[DEMO — no audio transcription] Tell me about a project you built.'});return;}
-        provider=new WebSocket('wss://api.openai.com/v1/realtime?intent=transcription',{headers:{Authorization:`Bearer ${key}`}});
+        // OPENAI_REALTIME_URL points the relay at a local stand-in for tests, as OPENAI_BASE_URL does for answers.
+        provider=new WebSocket(env.OPENAI_REALTIME_URL||'wss://api.openai.com/v1/realtime?intent=transcription',{headers:{Authorization:`Bearer ${key}`}});
         provider.on('unexpected-response',(_request,response)=>fail(response.statusCode===401?'Your OpenAI API key was rejected. Check it in Preferences':'Could not connect to transcription provider'));
         provider.on('open',()=>provider?.send(JSON.stringify({type:'session.update',session:{type:'transcription',audio:{input:{format:{type:'audio/pcm',rate:24000},transcription:{model:env.OPENAI_TRANSCRIPTION_MODEL||'gpt-live-transcribe',language:transcriptionLanguage,...(transcriptionLanguage==='en'?{prompt:'The speakers use English. Write the transcript in English only.'}:{})},turn_detection:null}}}})));
         provider.on('message',raw=>{try{const e=JSON.parse(raw.toString());if(e.type==='session.updated'){ready=true;send({type:'ready'});}else if(e.type==='conversation.item.input_audio_transcription.delta')send({type:'partial',id:e.item_id,text:e.delta});else if(e.type==='conversation.item.input_audio_transcription.completed')send({type:'final',id:e.item_id,text:e.transcript});else if(e.type==='error'&&e.error?.code==='invalid_api_key')fail('Your OpenAI API key was rejected. Check it in Preferences');else if(e.type==='error'||e.type==='conversation.item.input_audio_transcription.failed')fail('Transcription provider failed');}catch{fail('Invalid provider response');}});

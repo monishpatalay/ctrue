@@ -7,6 +7,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
 import { SignJWT, exportJWK, generateKeyPair } from 'jose';
+import { contract } from './api-contract.mjs';
+import { startMockOpenAI } from './mock-openai.mjs';
 
 // ponytail: a disposable local PostgreSQL cluster verifies the actual money RPCs;
 // no production connection string is accepted by this check.
@@ -35,11 +37,14 @@ async function live() {
   keys.listen(0, '127.0.0.1');
   await once(keys, 'listening');
   const origin = `http://127.0.0.1:${keys.address().port}`;
-  const jwt = (audience = origin) => new SignJWT({ email: 'live@example.com' }).setProtectedHeader({ alg: 'EdDSA', kid: 'test' })
-    .setSubject('user-live').setIssuer(origin).setAudience(audience).setExpirationTime('15m').sign(privateKey);
+  const jwt = (audience = origin, subject = 'user-live') => new SignJWT({ email: subject === 'user-live' ? 'live@example.com' : `${subject}@example.com` }).setProtectedHeader({ alg: 'EdDSA', kid: 'test' })
+    .setSubject(subject).setIssuer(origin).setAudience(audience).setExpirationTime('15m').sign(privateKey);
+  // OpenAI is a local stand-in, so this check never depends on the internet or OpenAI's availability.
+  const mock = await startMockOpenAI();
+  const databaseUrl = `postgresql://postgres@localhost:55432/postgres?host=${encodeURIComponent(socket)}`, authBase = `${origin}/neondb/auth/`;
   const api = spawn(process.execPath, ['--import', 'tsx', 'apps/api/src/index.ts'], {
-    env: { ...process.env, PORT: '55433', HOST: '127.0.0.1', DEMO_MODE: 'false', NODE_ENV: 'test', METERING: 'false', OPENAI_API_KEY: '',
-      DATABASE_URL: `postgresql://postgres@localhost:55432/postgres?host=${encodeURIComponent(socket)}`, NEON_AUTH_BASE_URL: `${origin}/neondb/auth/` },
+    env: { ...process.env, ...mock.env, PORT: '55433', HOST: '127.0.0.1', DEMO_MODE: 'false', NODE_ENV: 'test', METERING: 'false', OPENAI_API_KEY: '',
+      DATABASE_URL: databaseUrl, NEON_AUTH_BASE_URL: authBase },
     stdio: ['ignore', 'inherit', 'inherit'],
   });
   const call = async (path, token, body, method = body ? 'POST' : 'GET') => {
@@ -88,10 +93,12 @@ async function live() {
     const rejected = await ask({ 'X-OpenAI-Key': 'sk-test-invalid-key-for-ctrue-checks-0000000000' });
     // A bad key is only discovered when OpenAI is called, after the answer stream has started.
     assert.match(rejected.text, /event: error[\s\S]*Your OpenAI API key was rejected/);
+    await contract({ databaseUrl, authBase, token: subject => jwt(origin, subject) });
   } finally {
     api.kill('SIGTERM');
     if (api.exitCode === null) await once(api, 'exit');
     keys.close();
+    await mock.close();
   }
 }
 try {
