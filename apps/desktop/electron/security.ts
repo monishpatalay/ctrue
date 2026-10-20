@@ -18,7 +18,8 @@ export function validateShortcuts(value: unknown): Record<Action, string> {
   const result = { ...defaultShortcuts };
   for (const action of Object.keys(defaultShortcuts) as Action[]) {
     const key = input[action] ?? defaultShortcuts[action]; // settings saved before an action existed
-    if (typeof key !== 'string' || !/^(?:(?:CommandOrControl|Command|Control|Alt|Option|Shift|Super)\+){1,4}(?:[A-Z0-9]|Enter|Space|F(?:[1-9]|1[0-9]|2[0-4]))$/.test(key)) throw new Error(`Invalid shortcut for ${action}.`);
+    // Shift alone with a typing key (Shift+K, Shift+Enter) would take that key away from every other app.
+    if (typeof key !== 'string' || !/^(?:(?:CommandOrControl|Command|Control|Alt|Option|Shift|Super)\+){1,4}(?:[A-Z0-9]|Enter|Space|F(?:[1-9]|1[0-9]|2[0-4]))$/.test(key) || /^Shift\+(?:[A-Z0-9]|Enter|Space)$/.test(key)) throw new Error(`Invalid shortcut for ${action}.`);
     result[action] = key;
   }
   if (new Set(Object.values(result)).size !== Object.keys(result).length) throw new Error('Each shortcut must be unique.');

@@ -90,7 +90,8 @@ export function recentSpeech(transcript: Transcript[], now: number, windowMs: nu
 export function acceleratorFrom(event: { metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; code: string }): string | null {
   const key = /^Key[A-Z]$/.test(event.code) ? event.code.slice(3) : /^Digit\d$/.test(event.code) ? event.code.slice(5) : /^(Enter|Space|F([1-9]|1\d|2[0-4]))$/.test(event.code) ? event.code : null;
   const modifiers = [(event.metaKey || event.ctrlKey) && 'CommandOrControl', event.altKey && 'Alt', event.shiftKey && 'Shift'].filter(Boolean);
-  return key && modifiers.length ? [...modifiers, key].join('+') : null;
+  // Shift alone only combines with an F-key; with a letter it would just type a capital everywhere.
+  return key && modifiers.length && (modifiers.join() !== 'Shift' || key.startsWith('F')) ? [...modifiers, key].join('+') : null;
 }
 const KEY_SYMBOLS: Record<string, string> = { CommandOrControl: '⌘', Command: '⌘', Control: '⌃', Alt: '⌥', Option: '⌥', Shift: '⇧', Enter: '↩' };
 export const prettyShortcut = (value: string) => value.split('+').map(part => KEY_SYMBOLS[part] || part).join(' ');

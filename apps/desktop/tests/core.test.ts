@@ -81,6 +81,10 @@ test('a pressed key combination becomes a valid shortcut; lone keys and lone mod
   assert.equal(press('ArrowUp', { metaKey: true }), null);
   for (const made of [press('KeyK', { metaKey: true })!, press('F5', { shiftKey: true })!]) assert.equal(validateShortcuts({ ...defaultShortcuts, capture: made }).capture, made);
   assert.equal(prettyShortcut('CommandOrControl+Shift+Enter'), '⌘ ⇧ ↩');
+  // Shift alone with a typing key would make that capital letter (or Shift+Enter) unusable in every app.
+  assert.equal(press('KeyK', { shiftKey: true }), null);
+  assert.equal(press('Enter', { shiftKey: true }), null);
+  for (const typing of ['Shift+K', 'Shift+Enter', 'Shift+Space']) assert.throws(() => validateShortcuts({ ...defaultShortcuts, capture: typing }), /Invalid shortcut/, typing);
 });
 test('settings saved before the add-screenshot shortcut still load, and its key cannot clash', () => {
   const { collect, ...older } = defaultShortcuts;
