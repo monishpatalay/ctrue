@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { defaultShortcuts, isNewerVersion, parseHandoff, trustedService, validateShortcuts } from '../electron/security';
-import { acceleratorFrom, formatTime, heardSince, isEnglish, isNewProblem, parseMarkdown, prettyShortcut, readEvents, recentSpeech, updateTranscript } from '../src/api';
+import { acceleratorFrom, formatTime, heardSince, isEnglish, isFiller, isNewProblem, parseMarkdown, prettyShortcut, readEvents, recentSpeech, updateTranscript } from '../src/api';
 import { encodePCM16 } from '../public/pcm-worklet.js';
 import { buildCode, resumeContext, stepsMatchFinal, type WalkStep } from '../src/steps';
 
@@ -164,4 +164,9 @@ test('sign-in links and service addresses: the remaining edge cases', () => {
   assert.throws(() => trustedService('https://api.example.com/?debug=1'));
   assert.throws(() => trustedService('file:///etc/passwd'));
   assert.equal(isNewerVersion('0.1', '0.1.0'), false); assert.equal(isNewerVersion('0.1.0.1', '0.1'), true);
+});
+
+test('polite filler on a call is not a question to answer', () => {
+  for (const text of ['Okay.', 'Thank you.', 'Okay, great.', 'Got it', 'Sounds good!', 'Yeah, makes sense.', 'Mhm', 'All right, cool.', 'I see']) assert.equal(isFiller(text), true, text);
+  for (const text of ['What is a hash map?', 'Thank you. Next question: explain recursion.', 'Okay, so how would you scale it?', 'Great, tell me about yourself.', 'Why use Kafka here?']) assert.equal(isFiller(text), false, text);
 });

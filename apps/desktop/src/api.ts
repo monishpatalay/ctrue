@@ -46,6 +46,10 @@ export const isNewProblem = (text: string) => {
   const said = text.replace(/\b(design|build)\s+(this|it|that)\b/gi, '');
   return /system design|\bgiven an?\s/i.test(said) || [...said.matchAll(/\b(?:design|build|create|implement|write|code|solve)\s+(an?\s|[A-Z])/gi)].some(match => /^(?:an?\s|[A-Z])/.test(match[1]));
 };
+// Polite or acknowledging phrases on a call ("Okay, great.", "Thank you", "Got it") are not questions to answer.
+// ponytail: a word list; a short phrase made only of these words is skipped. Widen it if other fillers get answered.
+const FILLER = new Set('ok okay sure yes yeah yep yup no nope right alright all cool great nice perfect good awesome fine excellent thanks thank you got it mhm mm hmm uh um huh oh ah so well and sounds makes sense understood i see'.split(' '));
+export const isFiller = (text: string) => { const words = text.toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(Boolean); return words.length <= 6 && words.every(word => FILLER.has(word)); };
 // Speech arrives in fragments split at each short pause. This is everything said since the last answer, joined,
 // or null while nothing is new or the newest fragment is still being spoken.
 export function heardSince(transcript: Transcript[], answeredId: string): { text: string; lastId: string } | null {

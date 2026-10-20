@@ -4,7 +4,7 @@ import { acquireScreen, startAudio, type Capture } from './capture';
 import { Markdown } from './Markdown';
 import { Walkthrough } from './Walkthrough';
 import { LANGUAGES, resumeContext, type Topic, type WalkStep } from './steps';
-import { acceleratorFrom, formatTime, heardSince, isNewProblem, prettyShortcut, readEvents, recentSpeech, updateTranscript, type Transcript } from './api';
+import { acceleratorFrom, formatTime, heardSince, isFiller, isNewProblem, prettyShortcut, readEvents, recentSpeech, updateTranscript, type Transcript } from './api';
 
 const defaultConfig: Config = { api: import.meta.env.VITE_API_URL || 'http://localhost:4318', website: import.meta.env.VITE_WEBSITE_URL || 'http://localhost:3000', platform: 'browser', packaged: false, secureStorage: false, updateEnabled: false, shortcuts: { capture: 'CommandOrControl+L', screenshot: 'CommandOrControl+J', collect: 'CommandOrControl+Shift+J', answer: 'CommandOrControl+Enter', hide: 'CommandOrControl+H', next: 'Alt+Shift+N', previous: 'Alt+Shift+B' } };
 type Answer = { question: string; text: string };
@@ -100,7 +100,7 @@ export function App() {
   const actions = useRef<Record<string, (payload?: unknown) => void>>({});
   const answeredId = useRef('');
   const relisten = useRef(false);
-  const inflight = useRef<Promise<void> | null>(null);
+  const inflight = useRef<Promise<unknown> | null>(null);
   const activeQuestion = useRef('');
   const streamSource = useRef<string | undefined>(undefined);
   const stopCapture = useCallback(async () => {
@@ -187,6 +187,7 @@ export function App() {
     if (!session || session.status !== 'active') return;
     let heartbeatBusy = false;
     let disposed = false;
+    let missed = 0;
     const signIn = authEpoch.current;
     const isCurrent = () => !disposed && authEpoch.current === signIn && sessionRef.current?.id === session.id && sessionRef.current.status === 'active';
     const interval = setInterval(() => {
@@ -195,11 +196,13 @@ export function App() {
       void (async () => {
         try {
           const current = await json<Session>(`/sessions/${session.id}/heartbeat`, {});
+          missed = 0;
           if (!isCurrent()) return;
           setSession(current); sessionRef.current = current;
           if (current.status !== 'active' || (meteredRef.current && current.remainingSeconds <= 0)) { await stopCapture(); abortRef.current?.abort(); setNotice('Session stopped. Check your remaining credits.'); }
         } catch (cause) {
-          if (!isCurrent()) return;
+          // Two misses in a row are a network blip, ridden out within the 15-second server lease; the third stops capture.
+          if (!isCurrent() || ++missed < 3) return;
           await stopCapture(); abortRef.current?.abort();
           if (!isCurrent()) return;
           const pausedLocal = { ...sessionRef.current!, status: 'paused' as const };
@@ -266,8 +269,8 @@ export function App() {
         if (version !== captureVersion.current || sessionRef.current?.status !== 'active') return;
         screen = await acquireScreen(selected);
         if (version !== captureVersion.current || sessionRef.current?.status !== 'active') { screen.getTracks().forEach(track => track.stop()); return; }
-        const active = await startAudio({ stream: screen, micId: mic ? micId : undefined, api: config.api, accessToken: tokenRef.current!, sessionId: current.id, openaiKey: (await window.ctrue?.openaiKey()) || undefined, signal: controller.signal,
-          onReady: () => { if (version === captureVersion.current) setCaptureStatus('live'); }, onLevel: value => { if (version === captureVersion.current) setLevel(value); },
+        const active = await startAudio({ stream: screen, micId: mic ? micId : undefined, api: config.api, accessToken: () => tokenRef.current!, sessionId: current.id, openaiKey: (await window.ctrue?.openaiKey()) || undefined, signal: controller.signal,
+          onReady: () => { if (version === captureVersion.current) setCaptureStatus('live'); }, onReconnecting: () => { if (version === captureVersion.current) setCaptureStatus('connecting'); }, onLevel: value => { if (version === captureVersion.current) setLevel(value); },
           // Pausing clears the error banner, so report the capture failure after it, or it vanishes unseen.
           onError: value => { if (version !== captureVersion.current) return; void (async () => { await stopCapture(); if (sessionRef.current?.status === 'active') await controlSession('pause'); setError(value); })(); },
           onText: (type, id, text) => {
@@ -301,45 +304,48 @@ export function App() {
     return shot;
   }
   // A deliberate request (shortcut, button, follow-up) replaces an answer in progress; automatic ones wait their turn.
-  async function generate(override?: string, shot?: string | string[], as: Mode = mode, preempt = true) {
+  // Resolves true once an answer or walkthrough has fully arrived.
+  async function generate(override?: string, shot?: string | string[], as: Mode = mode, preempt = true): Promise<boolean> {
     // Speech picked up automatically can start a walkthrough, but never restarts one already on screen.
-    if (as === 'walkthrough' && !preempt && stepsRef.current.length) return;
-    if (inflight.current) { if (!preempt) return; abortRef.current?.abort(); await inflight.current; }
+    if (as === 'walkthrough' && !preempt && stepsRef.current.length) return false;
+    if (inflight.current) { if (!preempt) return false; abortRef.current?.abort(); await inflight.current; }
     const task = as === 'walkthrough' ? walk(false, override, shot) : respond(override, shot, as);
     inflight.current = task;
-    try { await task; } finally { if (inflight.current === task) inflight.current = null; }
+    try { return await task; } finally { if (inflight.current === task) inflight.current = null; }
   }
-  async function respond(override?: string, shot?: string | string[], as: Mode = mode) {
+  async function respond(override?: string, shot?: string | string[], as: Mode = mode): Promise<boolean> {
     const pictures = shot ? [shot].flat() : image ? [image] : [];
     const picture = pictures.length > 0;
     // With nothing typed and no screenshot, answer what was just said on the call.
     const heard = transcript.filter(t => t.final).slice(-2).map(t => t.text).join(' ');
     const text = override ?? (question.trim() || (picture ? '' : heard));
-    if (!text && !picture) { setError('Nothing to answer yet. Type a question, take a screenshot, or let the speaker finish a sentence.'); return; }
+    if (!text && !picture) { setError('Nothing to answer yet. Type a question, take a screenshot, or let the speaker finish a sentence.'); return false; }
     const prompt = text || 'Read and solve the problem in this screenshot.';
     const signIn = authEpoch.current;
     const controller = new AbortController(); abortRef.current = controller;
     setError(''); setGenerating(true); setAnswer(''); activeQuestion.current = prompt;
     try {
       const current = await ensureSession();
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) return false;
       const ownKey = await window.ctrue?.openaiKey();
       const response = await request('/answers', { method: 'POST', headers: ownKey ? { 'X-OpenAI-Key': ownKey } : undefined, body: JSON.stringify({ sessionId: current.id, question: prompt, mode: as, ...(picture ? { images: pictures } : {}), context: [...answers.slice(-3).map(a => `Q: ${a.question}\nA: ${a.text}`), ...transcript.filter(t => t.final).slice(-8).map(t => t.text)].join('\n').slice(-16000) }), signal: controller.signal });
       let result = '';
       await readEvents(response, (event, value) => { if (authEpoch.current !== signIn || controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError'); if (event === 'token') { result += value.text || ''; setAnswer(result); } });
-      if (authEpoch.current !== signIn) return;
+      if (authEpoch.current !== signIn) return false;
       setAnswers(previous => [...previous, { question: prompt, text: result }].slice(-10));
       setNotice('Answer ready. Check the details before using it.');
-    } catch (cause) { if (authEpoch.current !== signIn) return; if (!controller.signal.aborted) setError(message(cause)); else setNotice('Generation cancelled.'); }
+      return true;
+    } catch (cause) { if (authEpoch.current === signIn) { if (!controller.signal.aborted) setError(message(cause)); else setNotice('Generation cancelled.'); } }
     finally { setGenerating(false); abortRef.current = null; }
+    return false;
   }
-  async function walk(resume: boolean, override?: string, shot?: string | string[]) {
+  async function walk(resume: boolean, override?: string, shot?: string | string[]): Promise<boolean> {
     let kind = topic;
     if (!resume) {
       const pictures = shot ? [shot].flat() : image ? [image] : [];
       const heard = transcript.filter(t => t.final).slice(-2).map(t => t.text).join(' ');
       const text = override ?? (question.trim() || (pictures.length ? 'Read the problem in the screenshot.' : heard));
-      if (!text) { setWalkError('Add the problem first: type it, take a screenshot, or capture it being read out.'); return; }
+      if (!text) { setWalkError('Add the problem first: type it, take a screenshot, or capture it being read out.'); return false; }
       walkProblem.current = { text, pictures };
       // ponytail: keyword match; a problem that says "system design" is planned as one whatever the toggle says.
       if (/system design/i.test(text) && topic !== 'system-design') { kind = 'system-design'; setTopic('system-design'); }
@@ -351,19 +357,21 @@ export function App() {
     setError(''); setWalkError(''); setWalking(true); setGenerating(true); activeQuestion.current = text;
     try {
       const current = await ensureSession();
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) return false;
       const ownKey = await window.ctrue?.openaiKey();
       const response = await request('/answers', { method: 'POST', headers: ownKey ? { 'X-OpenAI-Key': ownKey } : undefined, body: JSON.stringify({ sessionId: current.id, question: text, mode: 'walkthrough', topic: kind, language, ...(pictures.length ? { images: pictures } : {}), context: resumeContext(stepsRef.current) }), signal: controller.signal });
       await readEvents(response, (event, value) => {
         if (authEpoch.current !== signIn || controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
         if (event === 'step') { stepsRef.current = [...stepsRef.current, value as unknown as WalkStep]; setSteps(stepsRef.current); }
       });
-      if (authEpoch.current === signIn) setNotice('Walkthrough ready. Check each step before using it.');
+      if (authEpoch.current !== signIn) return false;
+      setNotice('Walkthrough ready. Check each step before using it.');
+      return true;
     } catch (cause) {
-      if (authEpoch.current !== signIn) return;
       // Completed steps stay on screen; Retry continues after them.
-      setWalkError(controller.signal.aborted ? 'Walkthrough stopped. Completed steps are kept.' : message(cause));
+      if (authEpoch.current === signIn) setWalkError(controller.signal.aborted ? 'Walkthrough stopped. Completed steps are kept.' : message(cause));
     } finally { setWalking(false); setGenerating(false); abortRef.current = null; }
+    return false;
   }
   async function retryWalk() {
     if (inflight.current) return;
@@ -386,8 +394,8 @@ export function App() {
     // Any new speech re-runs this effect and cancels the timer, so the answer waits for the whole question.
     const timer = setTimeout(() => {
       answeredId.current = heard.lastId;
-      // Answer whatever was said once the speaker stops. ponytail: a lone word ("So", "Okay") is skipped as filler.
-      if (heard.text.split(/\s+/).length <= 1) return;
+      // Answer whatever was said once the speaker stops, except a lone word or polite filler ("Okay, great.").
+      if (heard.text.split(/\s+/).length <= 1 || isFiller(heard.text)) return;
       setQuestion(heard.text);
       // Mid-walkthrough, a new problem starts a fresh walkthrough; anything else is a follow-up about the current step.
       if (mode === 'walkthrough' && stepsRef.current.length && !isNewProblem(heard.text)) explainStep(heard.text);
@@ -410,14 +418,21 @@ export function App() {
     screenshot: () => void run(async () => {
       const last = await chooseSource('screenshot', shots.length > 0);
       if (!last) return;
-      const shot = [...shots, last];
+      const collected = shots, shot = [...collected, last];
       setShots([]);
       // While listening, the screen goes with the question being asked about it; otherwise the screen is the question.
       const said = captureRef.current ? recentSpeech(transcript, Date.now(), RECENT_SPEECH_MS) : '';
-      if (!said) { await generate('Read and solve the problem in this screenshot.', shot, mode === 'walkthrough' ? 'walkthrough' : 'coding'); return; }
-      const heardLast = transcript.at(-1);
-      if (heardLast?.final) answeredId.current = heardLast.id; // already answered here; do not answer it again by voice alone
-      await generate(said, shot);
+      // Behavioral and System design keep their style; otherwise a screen is usually a coding problem.
+      const styled = mode === 'behavioral' || mode === 'system-design';
+      let answered: boolean;
+      if (!said) answered = await generate(styled ? 'Answer the question in this screenshot.' : 'Read and solve the problem in this screenshot.', shot, styled || mode === 'walkthrough' ? mode : 'coding');
+      else {
+        const heardLast = transcript.at(-1);
+        if (heardLast?.final) answeredId.current = heardLast.id; // already answered here; do not answer it again by voice alone
+        answered = await generate(said, shot);
+      }
+      // A failed answer keeps the collected parts; the shortcut then retakes the current screen and tries again.
+      if (!answered) setShots(collected);
     }),
     // Mid-walkthrough, what was typed or just said is a question about the current step unless it names a new problem
     // (as with spoken and pop-up follow-ups); the original problem text restarts the walkthrough.
@@ -452,8 +467,10 @@ export function App() {
   }
   async function installUpdate() { updateState.current.installing = true; await window.ctrue?.installUpdate(); }
   async function signout() {
+    const removeKey = hasKey && confirm('Also remove your OpenAI API key from this computer? Keep it only if you will be the one signing in again.');
     if (sessionRef.current?.status === 'active' || sessionRef.current?.status === 'paused') await controlSession('end');
     await stopCapture(); abortRef.current?.abort(); authenticate(null); setDemo(false); setSession(null); sessionRef.current = null; clearContext(); setFacts('');
+    if (removeKey) { await window.ctrue?.setOpenaiKey(null); setHasKey(false); }
     await window.ctrue?.signout();
   }
 

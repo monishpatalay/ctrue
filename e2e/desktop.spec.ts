@@ -136,14 +136,29 @@ test('listening shows the live transcript and answers once the speaker pauses', 
   await expect(page.locator('.pill', { hasText: 'Ready' })).toBeVisible();
 });
 
+test('one missed heartbeat does not stop the session (improvement 2)', async ({ page }) => {
+  test.setTimeout(45_000);
+  await answers(page);
+  await demo(page);
+  await question(page).fill('Start a session');
+  await page.getByRole('button', { name: /Generate answer/ }).click();
+  await expect(page.getByRole('button', { name: 'Ⅱ Pause' })).toBeVisible();
+  let missed = 0;
+  await page.route(`${API}/sessions/*/heartbeat`, route => missed++ === 0 ? route.abort('connectionrefused') : route.fallback());
+  await expect.poll(() => missed, { timeout: 15_000 }).toBeGreaterThanOrEqual(2);
+  await expect(page.getByRole('button', { name: 'Ⅱ Pause' })).toBeVisible();
+  await expect(page.getByText('Connection lost')).toHaveCount(0);
+});
+
 test('a failed heartbeat stops the session and says why', async ({ page }) => {
+  test.setTimeout(45_000);
   await answers(page);
   await demo(page);
   await question(page).fill('Start a session');
   await page.getByRole('button', { name: /Generate answer/ }).click();
   await expect(page.getByRole('button', { name: 'Ⅱ Pause' })).toBeVisible();
   await page.route(`${API}/sessions/*/heartbeat`, route => route.abort('connectionrefused'));
-  await expect(page.getByRole('alert')).toContainText('Connection lost. Capture stopped', { timeout: 10_000 });
+  await expect(page.getByRole('alert')).toContainText('Connection lost. Capture stopped', { timeout: 25_000 });
   await expect(page.getByRole('button', { name: '▷ Resume' })).toBeVisible();
 });
 
@@ -264,4 +279,78 @@ test('a resume over the 8 MB upload limit is refused before it is sent (REN-26)'
   await page.locator('.upload-label input[type=file]').setInputFiles({ name: 'resume.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(8_500_000) });
   await expect(page.getByRole('alert')).toContainText('Resume must be under 8 MB.');
   expect(uploads).toBe(0);
+});
+
+// A stand-in for the API's transcription socket: each connection gets the next script of events.
+async function transcription(page: Page, scripts: ((send: (value: object) => void, close: (code: number) => void) => void)[]) {
+  let connection = 0;
+  await page.routeWebSocket(/\/transcription$/, ws => {
+    const script = scripts[Math.min(connection++, scripts.length - 1)];
+    ws.onMessage(raw => { if (JSON.parse(String(raw)).type === 'start') script(value => ws.send(JSON.stringify(value)), code => ws.close({ code })); });
+  });
+  return () => connection;
+}
+const said = (text: string, id = text) => ({ type: 'final', id, text });
+
+test('polite filler on the call is not answered; the question after it is (improvement 1)', async ({ page }) => {
+  const asked = await answers(page);
+  await transcription(page, [send => { send({ type: 'ready' }); send(said('Okay, thank you.')); setTimeout(() => send(said('What is a queue?')), 2500); }]);
+  await demo(page);
+  await emit(page, 'capture');
+  await expect(page.locator('.transcript-final')).toHaveCount(2, { timeout: 5_000 });
+  await expect(page.locator('.answer-text')).toContainText('Answer to: What is a queue?', { timeout: 8_000 });
+  expect(asked.map(a => a.question)).toEqual(['What is a queue?']);
+});
+
+test('listening reconnects by itself when the transcription service drops (improvement 9)', async ({ page }) => {
+  const connections = await transcription(page, [
+    (send, close) => { send({ type: 'ready' }); setTimeout(() => { send({ type: 'error', error: 'Transcription provider failed' }); close(1011); }, 300); },
+    send => { send({ type: 'ready' }); send(said('What is a queue?')); },
+  ]);
+  await demo(page);
+  await emit(page, 'capture');
+  await expect(page.locator('.transcript-final')).toContainText('What is a queue?', { timeout: 10_000 });
+  expect(connections()).toBe(2);
+  await expect(page.locator('.pill.live')).toHaveText('● Listening');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
+test('a rejected key still stops listening with the reason', async ({ page }) => {
+  await transcription(page, [(send, close) => { send({ type: 'error', error: 'Your OpenAI API key was rejected. Check it in Preferences' }); close(1011); }]);
+  await demo(page);
+  await emit(page, 'capture');
+  await expect(page.getByRole('alert')).toContainText('Your OpenAI API key was rejected');
+  await expect(page.locator('.pill', { hasText: 'Ready' })).toBeVisible();
+});
+
+test('a screenshot is answered in the chosen mode (improvement 4)', async ({ page }) => {
+  const asked = await answers(page);
+  await demo(page);
+  await mode(page, 'System design');
+  await emit(page, 'screenshot');
+  await expect(page.locator('.answer-text')).toContainText('Answer to: Answer the question in this screenshot.');
+  expect(asked[0]).toMatchObject({ mode: 'system-design' });
+});
+
+test('collected screenshots survive a failed answer (improvement 5)', async ({ page }) => {
+  const asked = await answers(page, (body, index) => index === 0 ? { status: 503, error: 'Database unavailable' } : standard(body));
+  await demo(page);
+  for (let n = 1; n <= 2; n++) { await emit(page, 'collect'); await expect.poll(async () => (await lastPopupState(page))?.shots).toBe(n); }
+  await emit(page, 'screenshot');
+  await expect(page.getByRole('alert')).toContainText('Database unavailable');
+  await expect.poll(async () => (await lastPopupState(page))?.shots).toBe(2);
+  await emit(page, 'screenshot');
+  await expect(page.locator('.answer-text')).toContainText('Answer to: Read and solve the problem in this screenshot.');
+  expect(asked[1].images).toHaveLength(3);
+});
+
+test('signing out offers to remove the OpenAI key from this computer (improvement 7)', async ({ page }) => {
+  await demo(page, { openaiKey: 'sk-proj-abcdefghijklmnopqrstuvwxyz012345' });
+  await page.getByRole('button', { name: 'Preferences' }).click();
+  let asked = '';
+  page.once('dialog', dialog => { asked = dialog.message(); void dialog.accept(); });
+  await page.getByRole('button', { name: 'Sign out & clear context' }).click();
+  await expect(page.getByText('Status: not added')).toBeVisible();
+  expect(asked).toMatch(/remove your OpenAI API key/i);
+  expect((await calls(page, 'setOpenaiKey')).map(c => c.args[0])).toEqual([null]);
 });
