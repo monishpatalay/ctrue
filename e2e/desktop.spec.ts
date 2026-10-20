@@ -213,7 +213,7 @@ test('the OpenAI key form refuses a malformed key, then saves and removes a real
   await expect(page.getByRole('alert')).toContainText('That does not look like an OpenAI API key');
   await key.fill('sk-proj-abcdefghijklmnopqrstuvwxyz012345');
   await page.getByRole('button', { name: 'Save key' }).click();
-  await expect(page.getByText('saved on this Mac, encrypted')).toBeVisible();
+  await expect(page.getByText('saved on this computer, encrypted')).toBeVisible();
   await page.getByRole('button', { name: 'Remove key' }).click();
   await expect(page.getByText('Status: not added')).toBeVisible();
 });
@@ -353,4 +353,12 @@ test('signing out offers to remove the OpenAI key from this computer (improvemen
   await expect(page.getByText('Status: not added')).toBeVisible();
   expect(asked).toMatch(/remove your OpenAI API key/i);
   expect((await calls(page, 'setOpenaiKey')).map(c => c.args[0])).toEqual([null]);
+});
+
+test('on Windows, shortcuts show as Ctrl key names and nothing mentions a Mac', async ({ page }) => {
+  await demo(page, { platform: 'win32' });
+  await expect(page.locator('.capture-controls kbd')).toHaveText('Ctrl+L');
+  await page.getByRole('button', { name: 'Preferences' }).click();
+  await expect(page.locator('.setting-row', { hasText: 'Answer what was just said' }).locator('input')).toHaveValue('Ctrl+Enter');
+  await expect(page.getByText(/\bMac\b/)).toHaveCount(0);
 });

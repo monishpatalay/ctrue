@@ -1,6 +1,7 @@
 import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, safeStorage, screen, session, shell, systemPreferences, Tray } from 'electron';
 import { readFile, writeFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { autoUpdater } from 'electron-updater';
 import { defaultShortcuts, isNewerVersion, parseHandoff, trustedService, validateShortcuts, type Action } from './security';
 
@@ -52,7 +53,7 @@ function showPopup() {
 }
 function assertSender(event: Electron.IpcMainInvokeEvent) {
   const url = event.senderFrame?.url;
-  if ((event.sender !== window.webContents && event.sender !== popup?.webContents) || !url || (rendererURL ? new URL(url).origin !== new URL(rendererURL).origin : url.split('#')[0] !== new URL(`file://${path.join(__dirname, '../dist/index.html')}`).href)) throw new Error('Untrusted application frame.');
+  if ((event.sender !== window.webContents && event.sender !== popup?.webContents) || !url || (rendererURL ? new URL(url).origin !== new URL(rendererURL).origin : url.split('#')[0] !== pathToFileURL(path.join(__dirname, '../dist/index.html')).href)) throw new Error('Untrusted application frame.');
 }
 function ipc(channel: string, handler: (...args: unknown[]) => unknown) { ipcMain.handle(channel, (event, ...args) => { assertSender(event); return handler(...args); }); }
 function writeCredentials<T>(operation: () => Promise<T>): Promise<T> {

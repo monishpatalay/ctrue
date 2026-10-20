@@ -84,7 +84,8 @@ async function auth(req:Request,_res:Response,next:NextFunction) {
     const token=string(req.headers.authorization?.replace(/^Bearer /,''),'access token',8000);
     let user:User;
     try{user=await authenticate(token);}catch(e){if(e instanceof HttpError&&e.status===401)rate(`authfail:${req.ip}`,Infinity);throw e;}
-    rate(user.id);users.set(req,user);next();
+    // The local demo is one identity shared by every test and tab on this machine; real users are limited per user.
+    if(user.id!=='demo')rate(user.id);users.set(req,user);next();
   }catch(e){next(e);}
 }
 function user(req:Request) { const value=users.get(req);if(!value)throw new HttpError(401,'Sign in required');return value; }

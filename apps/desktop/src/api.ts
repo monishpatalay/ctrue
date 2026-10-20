@@ -98,4 +98,6 @@ export function acceleratorFrom(event: { metaKey: boolean; ctrlKey: boolean; alt
   return key && modifiers.length && (modifiers.join() !== 'Shift' || key.startsWith('F')) ? [...modifiers, key].join('+') : null;
 }
 const KEY_SYMBOLS: Record<string, string> = { CommandOrControl: '⌘', Command: '⌘', Control: '⌃', Alt: '⌥', Option: '⌥', Shift: '⇧', Enter: '↩' };
-export const prettyShortcut = (value: string) => value.split('+').map(part => KEY_SYMBOLS[part] || part).join(' ');
+const KEY_NAMES: Record<string, string> = { CommandOrControl: 'Ctrl', Command: 'Ctrl', Control: 'Ctrl', Option: 'Alt', Super: 'Win' };
+// macOS shows symbols (⌘ ⇧ J); Windows names the keys (Ctrl+Shift+J).
+export const prettyShortcut = (value: string, mac = true) => mac ? value.split('+').map(part => KEY_SYMBOLS[part] || part).join(' ') : value.split('+').map(part => KEY_NAMES[part] || part).join('+');

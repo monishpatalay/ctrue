@@ -76,3 +76,9 @@ test('a follow-up is sent to the main window, but not while thinking', async ({ 
   await page.getByRole('button', { name: 'Hide pop-up' }).click();
   expect(await calls(page, 'popupHide')).toHaveLength(1);
 });
+
+test('on Windows the pop-up hint names the keys', async ({ page }) => {
+  await installCtrue(page, { platform: 'win32' });
+  await page.reload(); // the same URL with a hash would not load a new page, so the Windows stub would never run
+  await expect(page.getByText('Ctrl+L listen · Ctrl+J answer screen · Ctrl+Shift+J add screen · Ctrl+H hide')).toBeVisible();
+});

@@ -11,6 +11,7 @@ export type StubOptions = {
   refresh?: string | null | 'reject';
   updateEnabled?: boolean;
   latest?: string | null;
+  platform?: string;
 };
 export const SHORTCUTS = { capture: 'CommandOrControl+L', screenshot: 'CommandOrControl+J', collect: 'CommandOrControl+Shift+J', answer: 'CommandOrControl+Enter', hide: 'CommandOrControl+H', next: 'Alt+Shift+N', previous: 'Alt+Shift+B' };
 
@@ -34,7 +35,7 @@ export async function installCtrue(page: Page, options: StubOptions = {}) {
     };
     (window as unknown as { __ctrue: unknown }).__ctrue = { calls, popupStates, emit: (action: string, payload?: unknown) => listeners.forEach(listener => listener({ action, payload })) };
     (window as unknown as { ctrue: unknown }).ctrue = {
-      config: async () => ({ api: options.api ?? api, website: 'http://127.0.0.1:53000', version: '0.1.9', packaged: false, platform: 'darwin', secureStorage: true, shortcuts, updateEnabled: options.updateEnabled ?? true }),
+      config: async () => ({ api: options.api ?? api, website: 'http://127.0.0.1:53000', version: '0.1.9', packaged: false, platform: options.platform ?? 'darwin', secureStorage: true, shortcuts, updateEnabled: options.updateEnabled ?? true }),
       credentials: async () => options.credentials ?? null,
       refresh: async () => { calls.push({ name: 'refresh', args: [] }); if (options.refresh === 'reject') throw fail('refresh', 'Login expired. Sign in again.'); return options.refresh ?? null; },
       signout: record('signout'),

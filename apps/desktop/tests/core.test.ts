@@ -170,3 +170,10 @@ test('polite filler on a call is not a question to answer', () => {
   for (const text of ['Okay.', 'Thank you.', 'Okay, great.', 'Got it', 'Sounds good!', 'Yeah, makes sense.', 'Mhm', 'All right, cool.', 'I see']) assert.equal(isFiller(text), true, text);
   for (const text of ['What is a hash map?', 'Thank you. Next question: explain recursion.', 'Okay, so how would you scale it?', 'Great, tell me about yourself.', 'Why use Kafka here?']) assert.equal(isFiller(text), false, text);
 });
+
+test('shortcuts read as symbols on macOS and as key names on Windows', () => {
+  assert.equal(prettyShortcut('CommandOrControl+Shift+J'), '⌘ ⇧ J');
+  assert.equal(prettyShortcut('CommandOrControl+Shift+J', false), 'Ctrl+Shift+J');
+  assert.equal(prettyShortcut('Alt+Shift+N', false), 'Alt+Shift+N');
+  assert.equal(prettyShortcut('CommandOrControl+Enter', false), 'Ctrl+Enter');
+});
