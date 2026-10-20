@@ -76,8 +76,16 @@ function rate(key:string,max=120) {
   if(!value||value.until<=now) limits.set(key,{count:1,until:now+60_000});
   else if(++value.count>max) throw new HttpError(429,'Too many requests; retry in one minute');
 }
+// Failed sign-ins are counted per address and a flood of bad tokens is cut off. Successful requests are only limited per
+// user, because many people can share one address behind an office network or a proxy.
+const authFailures=(ip:string|undefined)=>{const value=limits.get(`authfail:${ip}`);return !!value&&value.until>Date.now()&&value.count>=60;};
 async function auth(req:Request,_res:Response,next:NextFunction) {
-  try { const token=string(req.headers.authorization?.replace(/^Bearer /,''),'access token',8000); const user=await authenticate(token);rate(user.id);users.set(req,user);next(); }catch(e){next(e);}
+  try {
+    const token=string(req.headers.authorization?.replace(/^Bearer /,''),'access token',8000);
+    let user:User;
+    try{user=await authenticate(token);}catch(e){if(e instanceof HttpError&&e.status===401)rate(`authfail:${req.ip}`,Infinity);throw e;}
+    rate(user.id);users.set(req,user);next();
+  }catch(e){next(e);}
 }
 function user(req:Request) { const value=users.get(req);if(!value)throw new HttpError(401,'Sign in required');return value; }
 async function action(uid:string,id:string|null,op:string):Promise<Session> {
@@ -115,8 +123,8 @@ if(!Number.isInteger(trustedProxies)||trustedProxies<0||trustedProxies>5)throw n
 const app=express();app.disable('x-powered-by');app.set('trust proxy',trustedProxies);
 app.use(cors({origin(origin,cb){cb(originAllowed(origin)?null:new HttpError(403,'Origin denied'),originAllowed(origin));}}));
 app.get('/health',(_req,res)=>res.json({status:'ok',mode:demo?'demo':'live',configured}));
-// Per address, before body parsing or authentication, so a flood of junk cannot starve the database pool.
-app.use((req,_res,next)=>{try{rate(`ip:${req.ip}`,600);next();}catch(e){next(e);}});
+// An address with 60 failed sign-ins this minute is refused before its body is even parsed.
+app.use((req,_res,next)=>next(authFailures(req.ip)?new HttpError(429,'Too many failed sign-ins; retry in one minute'):undefined));
 app.use(express.json({limit:'5mb'}));
 app.use((req,_res,next)=>{if(req.body!==undefined&&(req.body===null||typeof req.body!=='object'||Array.isArray(req.body)))next(new HttpError(400,'Expected JSON object'));else {req.body??={};next();}});
 const mint=()=>({accessToken:randomBytes(32).toString('hex'),refreshToken:randomBytes(32).toString('hex')});
@@ -187,7 +195,9 @@ app.post('/answers',async(req,res,next)=>{
     const facts=(await profile(u.id)).facts;
     res.setHeader('Content-Type','text/event-stream');res.setHeader('Cache-Control','no-cache');res.setHeader('X-Accel-Buffering','no');res.flushHeaders();
     const send=(event:string,data:unknown)=>{if(!res.destroyed)res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);};
-    check=setInterval(()=>{void active(u.id,id).catch(()=>abort.abort());},1000);
+    // Every 5 s (a pause stops the answer within 5 s); one check at a time so a slow database cannot pile them up.
+    let checking=false;
+    check=setInterval(()=>{if(checking)return;checking=true;void active(u.id,id).catch(()=>abort.abort()).finally(()=>{checking=false;});},5000);
     if(demo&&walk){for(const step of [{kind:'summary',phase:'none',title:'Demo walkthrough',say:'[DEMO, no AI request made] I will restate the problem, then build it step by step.',code:null,action:'none',replaces:null,why:null,breaks:null,details:'- Ask about input size\n- Brute force first, then optimize'},{kind:'step',phase:topic==='coding'?'optimal':'design',title:'First piece',say:'I start with the simplest building block.',code:topic==='coding'?'def solve(nums):\n    return nums':'Client -> API server',action:'add',replaces:null,why:'Small steps keep the explanation easy to follow.',breaks:topic==='coding'?null:'Without an API layer, clients talk to storage directly.',details:null},{kind:'final',phase:topic==='coding'?'optimal':'design',title:'Final solution',say:'That gives the complete solution.',code:topic==='coding'?'def solve(nums):\n    return nums':'Client -> API server',action:'none',replaces:null,why:null,breaks:null,details:'**Time:** O(n) · **Space:** O(1)'}])send('step',step);}
     else if(demo)send('token',{text:`[DEMO — no AI request made] Practice ${mode} response. Question: ${question.slice(0,250)}. ${mode==='behavioral'?'Use your verified facts to describe Situation, Task, Action, and Result.':'Explain your approach, then cover tradeoffs and edge cases.'}`});
     else {
@@ -218,7 +228,7 @@ wss.on('connection',(socket,req)=>{
   const startup=setTimeout(()=>socket.close(1008,'Start message required'),10000);
   const send=(value:unknown)=>{if(socket.readyState===WebSocket.OPEN)socket.send(JSON.stringify(value));};
   const fail=(error:string)=>{send({type:'error',error});socket.close(1011,'Transcription stopped');provider?.close();};
-  const lease=setInterval(async()=>{if(!uid||!sessionId||checking)return;checking=true;try{await active(uid,sessionId);}catch{fail('Session paused, expired, or exhausted');}finally{checking=false;}},1000);
+  const lease=setInterval(async()=>{if(!uid||!sessionId||checking)return;checking=true;try{await active(uid,sessionId);}catch{fail('Session paused, expired, or exhausted');}finally{checking=false;}},5000);
   socket.on('message',async raw=>{
     try {
       const message=JSON.parse(raw.toString());

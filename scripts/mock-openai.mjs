@@ -27,7 +27,7 @@ export async function startMockOpenAI() {
     const send = (type, extra = {}) => { if (!closed) res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...extra })}\n\n`); };
     const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
     const walk = body.text?.format?.type === 'json_schema';
-    if (marker === 'slow') for (let i = 0; i < 50 && !closed; i++) { send('response.output_text.delta', { delta: `${i} ` }); await wait(100); }
+    if (marker === 'slow') for (let i = 0; i < 100 && !closed; i++) { send('response.output_text.delta', { delta: `${i} ` }); await wait(100); }
     else if (walk) {
       const steps = marker === 'badstep' ? [STEP, { ...STEP, say: '' }] : [{ ...STEP, kind: 'summary', phase: 'none', title: 'Two sum', code: null, action: 'none' }, STEP];
       const json = JSON.stringify({ steps });

@@ -34,7 +34,7 @@ export async function contract({ databaseUrl, authBase, token, origin, privateKe
   const mock = await startMockOpenAI();
   const settings = { ...mock.env, TRUST_PROXY: '1', DATABASE_URL: databaseUrl, NEON_AUTH_BASE_URL: authBase };
   const call = async (path, bearer, body, { method = body === undefined ? 'GET' : 'POST', headers = {} } = {}) => {
-    const response = await fetch(base + path, { method, signal: AbortSignal.timeout(10000), body: body === undefined ? undefined : JSON.stringify(body),
+    const response = await fetch(base + path, { method, signal: AbortSignal.timeout(20000), body: body === undefined ? undefined : JSON.stringify(body),
       headers: { 'Content-Type': 'application/json', ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}), ...headers } });
     const text = await response.text();
     let json = null; try { json = JSON.parse(text); } catch { /* SSE or HTML */ }
@@ -206,6 +206,12 @@ export async function contract({ databaseUrl, authBase, token, origin, privateKe
     await first.until(() => first.closed() === 4001);
     assert.equal(second.closed(), null);
     second.socket.close();
+  });
+  it('many signed-in users behind one shared address (an office, a proxy) are not throttled', async () => {
+    const people = await Promise.all(Array.from({ length: 10 }, () => user()));
+    const statuses = [];
+    for (let round = 0; round < 13; round++) statuses.push(...await Promise.all(people.flatMap(who => Array.from({ length: 5 }, () => call('/account', who.bearer, undefined, { headers: { 'X-Forwarded-For': '198.51.100.50' } }).then(r => r.status)))));
+    assert.deepEqual([...new Set(statuses)], [200], `${statuses.filter(s => s !== 200).length} of ${statuses.length} throttled`);
   });
   // Last: it fills this address's request budget.
   it('a flood of bad tokens from one address is throttled without slowing other users (API-1)', async () => {
