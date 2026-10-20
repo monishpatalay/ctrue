@@ -27,8 +27,17 @@ test('handoff is random, single-use, expires; untrusted boundary inputs rejected
 test('PCM turn commits only after voiced speech followed by silence',()=>{
   const turns=new AudioTurns(),speech=Buffer.alloc(4800),silence=Buffer.alloc(4800);
   for(let i=0;i<speech.length;i+=2)speech.writeInt16LE(2000,i);
-  assert.equal(turns.append(silence),false);assert.equal(turns.append(speech),false);
-  for(let i=0;i<5;i++)assert.equal(turns.append(silence),false);assert.equal(turns.append(silence),true);
+  assert.equal(turns.append(silence),null);assert.equal(turns.append(speech),null);
+  for(let i=0;i<5;i++)assert.equal(turns.append(silence),null);assert.equal(turns.append(silence),'commit');
+});
+test('fifteen seconds of pure silence is cleared, never sent for transcription',()=>{
+  const turns=new AudioTurns(),second=Buffer.alloc(48000),voiced=Buffer.alloc(48000);
+  for(let i=0;i<voiced.length;i+=2)voiced.writeInt16LE(2000,i);
+  for(let i=0;i<14;i++)assert.equal(turns.append(second),null);
+  assert.equal(turns.append(second),'clear','silence must not be committed: the provider invents text from it');
+  // Speech that is still going at the 15 s cap is committed so long monologues are transcribed in pieces.
+  for(let i=0;i<14;i++)turns.append(voiced);
+  assert.equal(turns.append(voiced),'commit');
 });
 test('rapid pause/resume carries fractional usage instead of granting free seconds',()=>{
   let now=0;const store=new DemoStore(()=>now),s=store.action(null,'start');

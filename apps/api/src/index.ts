@@ -232,7 +232,7 @@ wss.on('connection',(socket,req)=>{
         const bytes=Buffer.from(data,'base64');if(bytes.length%2!==0||bytes.length>48000)throw new HttpError(400,'PCM audio must contain at most one second of 24kHz mono PCM16');
         budget.consume(bytes.length);
         rate(`audio:${uid}`,2000);
-        if(!demo){if(provider?.bufferedAmount!>256000)throw new HttpError(429,'Audio connection congested');provider?.send(JSON.stringify({type:'input_audio_buffer.append',audio:data}));if(turns.append(bytes))provider?.send(JSON.stringify({type:'input_audio_buffer.commit'}));}
+        if(!demo){if(provider?.bufferedAmount!>256000)throw new HttpError(429,'Audio connection congested');provider?.send(JSON.stringify({type:'input_audio_buffer.append',audio:data}));const turn=turns.append(bytes);if(turn)provider?.send(JSON.stringify({type:`input_audio_buffer.${turn}`}));}
       }
     }catch(e){fail(e instanceof HttpError?e.message:'Invalid transcription message');}
   });

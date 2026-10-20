@@ -110,12 +110,16 @@ export function prompt(mode:string,facts:string) {
 export class AudioTurns {
   private voiced=false; private silence=0; private samples=0;
   constructor(private threshold=0.01,private silenceMs=600) {}
-  append(pcm:Buffer) {
+  // 'commit' sends a spoken turn for transcription; 'clear' drops 15 s of buffered silence, which the provider would
+  // otherwise turn into invented text ("Thank you.").
+  append(pcm:Buffer):'commit'|'clear'|null {
     let energy=0;for(let i=0;i<pcm.length;i+=2)energy+=(pcm.readInt16LE(i)/32768)**2;
     const count=pcm.length/2, speech=Math.sqrt(energy/count)>this.threshold;
     this.samples+=count;if(speech){this.voiced=true;this.silence=0;}else this.silence+=count;
-    if((this.voiced&&this.silence>=24*this.silenceMs)||this.samples>=24*15000){this.voiced=false;this.silence=0;this.samples=0;return true;}
-    return false;
+    if(!(this.voiced&&this.silence>=24*this.silenceMs)&&this.samples<24*15000)return null;
+    const turn=this.voiced?'commit':'clear';
+    this.voiced=false;this.silence=0;this.samples=0;
+    return turn;
   }
 }
 // A user's own OpenAI key, checked for shape only; OpenAI decides whether it is valid.
