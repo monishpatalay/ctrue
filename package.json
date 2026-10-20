@@ -19,7 +19,8 @@
     "package:mac": "npm run package:mac -w @ctrue/desktop",
     "package:win": "npm run package:win -w @ctrue/desktop",
     "test:e2e": "playwright test -c e2e",
-    "test:coverage": "c8 --reporter=text-summary --reporter=text --include=apps/api/src/core.ts --include=apps/desktop/src/api.ts --include=apps/desktop/src/steps.ts --include=apps/desktop/electron/security.ts --include=apps/web/lib/events.mjs --include=apps/web/components/markdown.tsx npm test"
+    "test:coverage": "c8 --reporter=text-summary --reporter=text --include=apps/api/src/core.ts --include=apps/desktop/src/api.ts --include=apps/desktop/src/steps.ts --include=apps/desktop/electron/security.ts --include=apps/web/lib/events.mjs --include=apps/web/components/markdown.tsx npm test",
+    "verify:release": "node scripts/verify-release.mjs"
   },
   "engines": {
     "node": ">=22.19"

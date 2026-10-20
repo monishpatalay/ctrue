@@ -7,6 +7,8 @@ const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 exports.default = async function adhocSign(context) {
   if (context.electronPlatformName !== 'darwin' || process.env.CSC_LINK || process.env.CSC_NAME) return;
+  // Updates and macOS permissions only carry over when every release has the same certificate.
+  if (process.env.CTRUE_SIGNED_RELEASE === 'true' && !process.env.CTRUE_SIGN_IDENTITY) throw new Error('CTRUE_SIGNED_RELEASE=true needs CTRUE_SIGN_IDENTITY (the release certificate); an ad hoc signature stops every installed copy from updating.');
   const app = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`);
   // A named certificate keeps the same identity on every build, so permissions and updates carry over; '-' is ad hoc.
   execFileSync('codesign', ['--force', '--deep', '--sign', process.env.CTRUE_SIGN_IDENTITY || '-', app], { stdio: 'inherit' });
