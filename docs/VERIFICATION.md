@@ -1,4 +1,7 @@
-# Verification — October 20, 2026
+# Release 0.1.10 — October 20, 2026
+
+Mac and, for the first time, Windows. Before publishing: typecheck, 42 unit tests (96% lines on the core modules), smoke, the database suite with 22 API contract cases, 60 E2E cases, the load test (p95 137 ms at 150 live users, after sessions are re-checked every 5 s instead of every second), and the real OpenAI run. On Windows (GitHub's windows-latest), the typecheck, the unit tests and all 10 Electron E2E cases passed; that run found and fixed WIN-1, which would have shipped a Windows app that refused every request. After publishing: `npm run verify:release -- --published` passed for both platforms (feeds, file sizes, website links), and the live website loads every page under its new content security policy with no violations. `npm run probe:production` passes except the privacy contact address (LEG-1), which needs your email.
+
 
 A full test pass of the three apps, the database and the release flow, run against `d01e6a5` (Ctrue 0.1.9) and the fixes that followed it. Every finding is in [TEST-FINDINGS.md](TEST-FINDINGS.md): 111 from a read-only review whose findings were then checked by independent skeptics, plus 2 found by the new tests. 44 are fixed; each fix had a failing test first.
 
@@ -23,7 +26,8 @@ CI (`check.yml`) now runs coverage and the website and renderer E2E suites. The 
 ## Pending
 
 - The [device checklist](CAPTURE-MATRIX.md): capture, permissions, meeting apps, sleep, and a real 0.1.9 → 0.1.10 update. Needs a person and a build with these fixes.
-- Open findings that need a decision: no hardened runtime or fuses (ELEC-11), website security headers (SEC-1), contact address (LEG-1), API and database regions (API-16), filler questions answered automatically (REN-8), and the rest marked *Open* in the findings.
+- Open findings that need a decision: the contact address (LEG-1), moving the API next to the database (API-16), and the rest marked *Open* in the findings.
+- The device checklist on Windows: a Windows 10 or 11 PC, steps 1–30 where they apply.
 
 # Verification — October 13, 2026 (earlier record)
 

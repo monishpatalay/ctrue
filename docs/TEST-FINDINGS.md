@@ -2,19 +2,20 @@
 
 Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four reviewers each covered one area (API and database, Electron main process, renderer, website and release), and four independent skeptics then tried to refute each finding by re-reading the code.
 
-113 findings: 67 confirmed, 44 plausible, 2 refuted (ELEC-25, ELEC-26). Severity below is the verifier's corrected rating.
+114 findings: 68 confirmed, 44 plausible, 2 refuted (ELEC-25, ELEC-26). Severity below is the verifier's corrected rating.
 
-**Status:** *Fixed (commit)* means a test failed before the fix and passes after it; *Open* means reported only: it needs a device check (docs/CAPTURE-MATRIX.md), a product decision, or is low priority. API-31 and A11Y-2 were found by the new test suites, after the sweep.
+**Status:** *Fixed (commit)* means a test failed before the fix and passes after it; *Open* means reported only: it needs a device check (docs/CAPTURE-MATRIX.md), a product decision, or is low priority. API-31, A11Y-2 and WIN-1 were found by the new test suites, after the sweep.
 
 | ID | Severity | Verdict | Finding | Status |
 |---|---|---|---|---|
 | [API-31](#api-31) | high | confirmed | PDF resume import fails for every PDF on Node 24 (production) | Fixed (aa23087) |
 | [REN-1](#ren-1) | high | confirmed | isNewProblem uses the /i flag, so [A-Z] matches any letter and ordinary follow-ups wipe the on-screen walkthrough | Fixed (21f9de4) |
+| [WIN-1](#win-1) | high | confirmed | On Windows the desktop app refused every request from its own windows | Fixed (f4cd2b5) |
 | [API-1](#api-1) | medium | confirmed | Unauthenticated requests reach the DB and 5 MB JSON parse with no per-IP limit; 10-connection pool has no timeouts | Fixed (e31d91a) |
 | [API-7](#api-7) | medium | confirmed | AudioTurns commits 15 s of pure silence, so silence is transcribed and can leak the transcription prompt as text | Fixed (bd6f5c8) |
 | [API-8](#api-8) | medium | plausible | PDF and DOCX import parse untrusted files in-process, with no page cap, timeout or concurrency limit, on one small instance | Open |
 | [API-13](#api-13) | medium | plausible | No WS ping/pong: a half-open socket keeps the `transcribing` guard, so reconnect is refused 409 while the lease stays alive | Fixed (c86a297) |
-| [API-14](#api-14) | medium | plausible | Transcription provider failures are fatal and there is no seam to test the provider path | Fixed (e31d91a) (test seam and provider-path contract cases added; failures still end capture (no auto-reconnect)) |
+| [API-14](#api-14) | medium | plausible | Transcription provider failures are fatal and there is no seam to test the provider path | Fixed (9c751b8) (listening now reconnects by itself after a passing provider failure) |
 | [API-17](#api-17) | medium | confirmed | Web dashboard 'Generate answer' never sends the OpenAI key, so it returns 402 for every non-owner and starts a session first | Fixed (5163666) |
 | [API-18](#api-18) | medium | plausible | Node keepAliveTimeout (5 s default) coincides with the 5 s heartbeat; a single transient failure makes the desktop stop capture | Open |
 | [CI-1](#ci-1) | medium | confirmed | No browser E2E for the website: the 43-line dashboard component holds all session, handoff, resume and answer logic with zero tests | Fixed (5163666) |
@@ -27,7 +28,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 | [REN-2](#ren-2) | medium | confirmed | Retry on a walkthrough that failed before its first step drops the problem and screenshots and re-reads the textbox or stale speech | Fixed (8e96f4c) |
 | [REN-3](#ren-3) | medium | confirmed | Pop-up renders the step explanation twice, and shows another step's explanation under the current step | Fixed (efd8717) |
 | [REN-5](#ren-5) | medium | confirmed | A rejected refresh (revoked or 30-day-idle credential) leaves the app in a zombie 'signed in' state with no sign-in prompt | Fixed (8021583) |
-| [REN-8](#ren-8) | medium | confirmed | Automatic questions answer any 2+ word utterance (fillers, 'Thank you.', silence hallucinations), replacing the on-screen answer and spending the user's OpenAI quota | Open |
+| [REN-8](#ren-8) | medium | confirmed | Automatic questions answer any 2+ word utterance (fillers, 'Thank you.', silence hallucinations), replacing the on-screen answer and spending the user's OpenAI quota | Fixed (9c751b8) |
 | [REN-9](#ren-9) | medium | confirmed | Client tolerates ~8 s of buffered audio but the server budget accepts a 2 s burst, so a 2-8 s network stall ends capture with 'Audio exceeds realtime speed' | Fixed (2d308c5) |
 | [REN-13](#ren-13) | medium | confirmed | The 'answer' shortcut in walkthrough mode restarts the whole walkthrough from stale input, and the guard that claims otherwise is dead code | Fixed (8e96f4c) |
 | [WEB-1](#web-1) | medium | confirmed | Dashboard practice answers always fail for non-owner users because the web never sends X-OpenAI-Key | Fixed (5163666) |
@@ -35,15 +36,15 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 | [A11Y-2](#a11y-2) | low | confirmed | Home page label below WCAG AA contrast | Fixed (5163666) |
 | [API-2](#api-2) | low | confirmed | Client cancel before listeners are registered leaves a zombie OpenAI generation holding the `answering` lock | Fixed (e31d91a) |
 | [API-3](#api-3) | low | plausible | Check-then-add across an await defeats the one-answer and one-transcription guards | Fixed (e31d91a) |
-| [API-4](#api-4) | low | confirmed | Lease pollers treat any error as lease loss; the answers poller has no in-flight guard; no DB timeouts | Open |
+| [API-4](#api-4) | low | confirmed | Lease pollers treat any error as lease loss; the answers poller has no in-flight guard; no DB timeouts | Fixed (b42a253) |
 | [API-5](#api-5) | low | confirmed | Render runs NODE_ENV=development, so the fail-fast config guard is off and /health stays green with auth unconfigured | Open |
 | [API-6](#api-6) | low | confirmed | The API's own 429 is rewritten as 'Your OpenAI account hit its rate limit or has no credit left' | Fixed (e31d91a) |
 | [API-9](#api-9) | low | plausible | Import path is never run on a real PDF or DOCX; the strict ZIP validator is only tested on handcrafted single-entry archives | Fixed (aa23087) |
-| [API-10](#api-10) | low | confirmed | Handoff code is a bare bearer with no binding to the requesting desktop; ctrue:// deep link redeems silently (login CSRF) | Open |
+| [API-10](#api-10) | low | confirmed | Handoff code is a bare bearer with no binding to the requesting desktop; ctrue:// deep link redeems silently (login CSRF) | Fixed (a3e939d) |
 | [API-11](#api-11) | low | plausible | Refresh rotation: a lost response forces a browser re-login; expiry is sliding with no cap and no reuse detection | Open |
 | [API-12](#api-12) | low | confirmed | JOSE error classification: a malformed JWKS (HTTP 200, not a key set) is a 401, and the 503 path has no test | Fixed (c86a297) |
 | [API-15](#api-15) | low | confirmed | Model refusals are dropped, so the client sees a successful empty answer; upstream event handling is untested | Open |
-| [API-16](#api-16) | low | plausible | 1 s lease polling writes to the DB on every call and, with pool=10 and cross-region RTT, caps concurrency near ~50 active users | Open (measured by npm run test:load: p95 79 ms at 25 live users, 185 ms at 75, 2.1 s at 150) |
+| [API-16](#api-16) | low | plausible | 1 s lease polling writes to the DB on every call and, with pool=10 and cross-region RTT, caps concurrency near ~50 active users | Fixed (b42a253) (sessions re-checked every 5 s: p95 137 ms at 150 live users (was 2.1 s); the cross-region distance remains) |
 | [API-19](#api-19) | low | confirmed | sql() reports DB data errors as an outage (503) and maps RAISE messages by substring | Open |
 | [API-20](#api-20) | low | confirmed | docs/API.md contradicts the code in several places | Fixed (622c602) |
 | [API-21](#api-21) | low | confirmed | Config files drift from what the code reads | Open |
@@ -70,31 +71,31 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 | [ELEC-8](#elec-8) | low | confirmed | Default global shortcuts steal system-wide keys and stay armed while the window is 'closed'; Shift-only or Alt-only combos are accepted | Fixed (5895240) |
 | [ELEC-9](#elec-9) | low | plausible | Any startup failure quits silently with no dialog or log; no renderer-crash recovery | Open |
 | [ELEC-10](#elec-10) | low | confirmed | Release env bake has no guard: .env fallback can ship localhost, a missing feed, or a bad website URL | Fixed (c0609be) |
-| [ELEC-11](#elec-11) | low | confirmed | Shipped build has no hardened runtime or entitlements, and default Electron fuses, so local processes can ride Ctrue's TCC grants | Open (reported as warnings by npm run verify:release) |
+| [ELEC-11](#elec-11) | low | confirmed | Shipped build has no hardened runtime or entitlements, and default Electron fuses, so local processes can ride Ctrue's TCC grants | Fixed (8f5682f) (hardened runtime and fuses, checked by npm run verify:release) |
 | [ELEC-14](#elec-14) | low | plausible | Refresh rotation is not crash- or timeout-safe: a lost response, an aborted request or a truncated write forces re-login | Open |
-| [ELEC-15](#elec-15) | low | plausible | handleLink bumps credentialVersion before the code is redeemed, so a failed or duplicate link discards an in-flight refresh | Open |
+| [ELEC-15](#elec-15) | low | plausible | handleLink bumps credentialVersion before the code is redeemed, so a failed or duplicate link discards an in-flight refresh | Fixed (a3e939d) |
 | [ELEC-16](#elec-16) | low | confirmed | Deep link silently replaces the signed-in account and steals focus; desktop code regex is looser than the server's | Open |
 | [ELEC-17](#elec-17) | low | confirmed | 'Check for updates' reports 'You have the latest version' when the check actually failed | Fixed (9ada226) |
 | [ELEC-18](#elec-18) | low | plausible | restore()/emit() are unguarded before the window exists or after it is destroyed | Open |
-| [ELEC-19](#elec-19) | low | plausible | assertSender builds the expected file URL by string concatenation instead of pathToFileURL | Open |
+| [ELEC-19](#elec-19) | low | plausible | assertSender builds the expected file URL by string concatenation instead of pathToFileURL | Fixed (f4cd2b5) |
 | [ELEC-20](#elec-20) | low | plausible | Undecryptable credential files and sign-out edge cases are not recoverable or fully revoked | Open |
 | [ELEC-21](#elec-21) | low | plausible | popup-state has no shape validation, and the 200 KB cap drops silently | Open |
-| [ELEC-22](#elec-22) | low | plausible | Default Electron application menu is left in the packaged app; Cmd+R, Cmd+W, Cmd+Q and DevTools act inside the shortcut recorder | Open |
+| [ELEC-22](#elec-22) | low | plausible | Default Electron application menu is left in the packaged app; Cmd+R, Cmd+W, Cmd+Q and DevTools act inside the shortcut recorder | Fixed (a3e939d) |
 | [ELEC-23](#elec-23) | low | plausible | Running `npm run dev` re-registers the ctrue:// handler to the dev Electron bundle | Open |
 | [ELEC-24](#elec-24) | low | confirmed | Two independent CSPs drift: the runtime header (not applied to file://) and the build-time meta tag | Open |
 | [ELEC-27](#elec-27) | low | confirmed | README and .env.example do not match the real release flow; website download link depends on an undocumented asset rename | Open |
 | [LEG-1](#leg-1) | low | plausible | Privacy and Terms promise data-access and deletion via 'contact details below', but the contact is an env-driven placeholder | Open (confirmed live by npm run probe:production) |
 | [MD-1](#md-1) | low | plausible | Website Markdown renderer is an unexported, untested copy of the desktop parser with no parity check | Fixed (2e7853d) |
 | [REL-2](#rel-2) | low | plausible | Build-time public env is unchecked: a missing value silently degrades the site (API URL becomes localhost, download CTA, contact, sign-in) | Open |
-| [REN-4](#ren-4) | low | confirmed | One failed heartbeat (503, 429, timeout) stops live capture and pauses the session, although the server lease tolerates three misses | Open |
+| [REN-4](#ren-4) | low | confirmed | One failed heartbeat (503, 429, timeout) stops live capture and pauses the session, although the server lease tolerates three misses | Fixed (9c751b8) |
 | [REN-6](#ren-6) | low | confirmed | 'Sign out & clear context' and 'Clear session context' leave the walkthrough, problem screenshots, question and pop-up question in memory | Fixed (8e96f4c) |
 | [REN-7](#ren-7) | low | plausible | Pop-up state over 200 KB is rejected by main and the renderer swallows the error, so the pop-up silently freezes | Open |
 | [REN-10](#ren-10) | low | plausible | Profile 'Save reviewed facts' is enabled before the profile has loaded, so a failed or slow load followed by Save overwrites stored facts with the textbox contents | Fixed (8e96f4c) |
 | [REN-11](#ren-11) | low | confirmed | A transient updater error after the update has downloaded replaces 'Restart to update' with a manual-download banner | Fixed (8e96f4c) |
 | [REN-12](#ren-12) | low | confirmed | 'Check for updates' says 'You have the latest version' when the check failed | Fixed (9ada226) |
 | [REN-14](#ren-14) | low | plausible | Preempting generate() can orphan an in-flight request and race the server's per-user answering lock | Open |
-| [REN-15](#ren-15) | low | confirmed | Screenshot shortcut clears collected screenshots before the answer succeeds, and the 5 MB body limit has no client-side guard | Open |
-| [REN-16](#ren-16) | low | confirmed | Screenshot shortcut with no recent speech forces 'coding' mode, ignoring the selected Technical, Behavioral or System design mode | Open |
+| [REN-15](#ren-15) | low | confirmed | Screenshot shortcut clears collected screenshots before the answer succeeds, and the 5 MB body limit has no client-side guard | Fixed (9c751b8) |
+| [REN-16](#ren-16) | low | confirmed | Screenshot shortcut with no recent speech forces 'coding' mode, ignoring the selected Technical, Behavioral or System design mode | Fixed (9c751b8) |
 | [REN-17](#ren-17) | low | confirmed | Walkthrough topic auto-switch to 'system-design' is one-way and sticky, and 'system design' anywhere in the problem text triggers it | Open |
 | [REN-18](#ren-18) | low | confirmed | buildCode uses String.replace with code as the replacement, so '$&', "$'", '$`' and '$$' in step code corrupt the rebuilt solution and trigger a false 'solution differs' warning | Fixed (dd705ab) |
 | [REN-19](#ren-19) | low | confirmed | controlSession pause/end mutates sessionRef before the server call and never rolls back on failure, so UI state and ref diverge | Open |
@@ -102,19 +103,19 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 | [REN-21](#ren-21) | low | confirmed | The pop-up webContents gets the full privileged preload API and every IPC channel (OpenAI key, tokens, shortcuts, quit) | Open |
 | [REN-22](#ren-22) | low | plausible | No React error boundary: any render exception blanks the window while the session, shortcuts and capture keep running | Open |
 | [REN-23](#ren-23) | low | confirmed | Stale 'credits' copy in a free, bring-your-own-key product | Open |
-| [REN-24](#ren-24) | low | confirmed | Pop-up shortcut hint never refreshes after rebinding, and a partially failed Save leaves an action unbound yet persisted | Open |
+| [REN-24](#ren-24) | low | confirmed | Pop-up shortcut hint never refreshes after rebinding, and a partially failed Save leaves an action unbound yet persisted | Fixed (a3e939d) |
 | [REN-25](#ren-25) | low | plausible | Every transcript delta re-renders the whole App and re-sends the full history through IPC to the pop-up | Open |
 | [REN-26](#ren-26) | low | confirmed | Resume size limits drift (UI '10 MB', API 8,000,000 bytes) and the 15 s default fetch timeout also covers upload plus parsing | Fixed (9ada226) |
-| [REN-27](#ren-27) | low | confirmed | The saved OpenAI key survives sign-out, so the next account on the same Mac silently uses the previous user's key | Open |
+| [REN-27](#ren-27) | low | confirmed | The saved OpenAI key survives sign-out, so the next account on the same Mac silently uses the previous user's key | Fixed (9c751b8) |
 | [REN-28](#ren-28) | low | confirmed | Auto questions semantics: the capture shortcut forces Auto on (even when it was turned off), and ticking Auto later answers old, unanswered speech | Open |
 | [REN-29](#ren-29) | low | plausible | mic-off relisten flag can stay set when the microphone was already off, causing a surprise capture start later | Open |
 | [REN-30](#ren-30) | low | plausible | WebSocket start uses tokenRef without the 401-refresh path, but access tokens live only 10 minutes | Open |
 | [REN-31](#ren-31) | low | confirmed | capture.ts lifecycle (abort during connect, server error before and after ready, track ended, backpressure, bad provider JSON) has no automated test | Fixed (8e96f4c) (listening path covered end to end in e2e/desktop.spec.ts; abort and backpressure branches still untested) |
 | [REN-32](#ren-32) | low | plausible | Renderer-to-API contract constants are duplicated and unpinned (images, sizes, languages, step schema, SSE and WS shapes) | Open |
-| [SEC-1](#sec-1) | low | plausible | Website sends no CSP, frame-ancestors, nosniff or referrer policy, yet exposes a bearer JWT to page JS | Open (confirmed live by npm run probe:production) |
+| [SEC-1](#sec-1) | low | plausible | Website sends no CSP, frame-ancestors, nosniff or referrer policy, yet exposes a bearer JWT to page JS | Fixed (8f5682f) |
 | [SEC-2](#sec-2) | low | plausible | Catch-all /api/auth proxy exposes every Neon Auth endpoint, including email/password sign-up, though the UI is Google-only | Open |
 | [SEC-3](#sec-3) | low | plausible | Desktop tokens ignore Neon account state and are renewed forever; there is no revoke-all or account-deletion path despite the privacy promise | Open |
-| [SEC-4](#sec-4) | low | plausible | ctrue://auth link signs the desktop into any account without confirmation (login CSRF) | Open |
+| [SEC-4](#sec-4) | low | plausible | ctrue://auth link signs the desktop into any account without confirmation (login CSRF) | Fixed (a3e939d) |
 | [WEB-2](#web-2) | low | confirmed | Dashboard shows a sawtooth 'remaining' countdown in free (METERING=false) mode | Open |
 | [WEB-3](#web-3) | low | confirmed | Sign out is blocked whenever ending the session fails (API down, 429, 404, token fetch failure) | Fixed (9ada226) (needs a signed-in browser; device checklist step 30) |
 | [WEB-4](#web-4) | low | confirmed | Web dashboard adopts and then ends the same session the desktop is using, killing live transcription | Open |
@@ -139,6 +140,15 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 - **What happens:** Walkthrough mode with 6 steps on screen. Auto questions are on, because the capture shortcut calls setAutomatic(true) at App.tsx:401. The interviewer says 'Why did you write it that way?', 'What does this code do?', 'How would you solve it with less memory?' or 'Can you build on that?'. The regex /\b(design|build|create|implement|write|code|solve)\s+(an?\s|[A-Z])/i matches 'write it', 'code do', 'solve it' and 'build on', because the i flag lets [A-Z] match lowercase. The only strip is design|build + this|it|that. isNewProblem returns true, so App.tsx:390 takes the generate(..., preempt=true) branch. walk(false) then runs stepsRef.current=[] and setSteps([]) at App.tsx:344, and the user's whole solution is replaced by a walkthrough of a non-problem. It also spends an OpenAI call. The existing test passes only because its negative phrases ('How would you scale this?', 'What is the time complexity?') contain none of the trigger verbs.
 - **Verifier:** api.ts:43 regex has the /i flag, so [A-Z] matches lowercase. 'write it', 'code do', 'solve it', 'build on', 'write the', 'implement this' all match. Only 'design|build + this|it|that' is stripped. App.tsx:390 then calls generate(..., preempt=true). generate() passes the line-304 guard, walk(false) runs, and line 344 clears stepsRef/setSteps([]). The existing test only uses negatives with no trigger verb (core.test.ts:121). Follow-ups about code are the commonest walkthrough interjections, so this is reachable in normal use and wipes the on-screen solution mid-call.
 - **Test (unit):** In apps/desktop/tests/core.test.ts add negatives to the isNewProblem test: 'Why did you write it that way?', 'What does this code do?', 'How would you solve it with less memory?', 'Can you build on that?', 'Walk me through the code once more'. All must be false. Also assert 'Design Uber' stays true. Then fix the regex by dropping the i flag on the capital-letter branch.
+
+### WIN-1
+
+**On Windows the desktop app refused every request from its own windows** · high · confirmed · `apps/desktop/electron/main.ts:54`
+
+- **Status:** Fixed (f4cd2b5)
+- **What happens:** The IPC sender check compared the page URL with a file URL built from __dirname; on Windows the same folder can be spelled differently (8.3 short names, drive-letter case), so every call failed with "Untrusted application frame": no sign-in, no settings, an empty pop-up hint. Found by the first Windows run of the Electron E2E suite, before any Windows release.
+- **Verifier:** Found and reproduced by the new test suites during this run.
+- **Test (e2e-electron):** e2e/electron.spec.ts on windows-latest in the Build the Windows release workflow.
 
 ### API-1
 
@@ -180,7 +190,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **Transcription provider failures are fatal and there is no seam to test the provider path** · medium · plausible · `apps/api/src/index.ts:227`
 
-- **Status:** Fixed (e31d91a) — test seam and provider-path contract cases added; failures still end capture (no auto-reconnect)
+- **Status:** Fixed (9c751b8) — listening now reconnects by itself after a passing provider failure
 - **What happens:** A single `conversation.item.input_audio_transcription.failed` event or any provider `error` event calls fail() and ends the user's live transcription (line 227). The desktop reacts by stopping capture and pausing the session. Provider session caps are another risk: if the realtime transcription session ends at its maximum duration (30/60 min is unverified for intent=transcription), `provider.on('close')` ends the call, with no server-side or client-side transparent reconnect. A 60 min or longer interview loses transcription abruptly. The provider URL is hard-coded (`wss://api.openai.com/...`, line 224) and the model name `gpt-live-transcribe` is never verified, so none of this path is testable offline. VERIFICATION.md confirms real transcription was never run.
 - **Verifier:** index.ts:227 sends every provider `error` and every transcription.failed to fail(). The provider close handler (228) does the same. capture.ts:61 then stops capture with 'Resume capture to reconnect', so there is no auto-reconnect. The realtime URL is hard-coded (224), so the provider path cannot be tested offline. docs/VERIFICATION.md:24 says real transcription was never run. A session cap or a non-fatal provider error ending a long interview is credible but unverified against real provider behaviour. Medium as a long-call resilience risk.
 - **Test (integration):** Make the realtime URL configurable (e.g. OPENAI_REALTIME_URL) and add a fake provider in test-database.mjs. Table-driven cases: session.updated -> ready; delta/completed -> partial/final; transcription.failed -> assert the session survives and the segment is skipped; error code invalid_api_key -> specific message; unexpected-response 401; close after N s -> reconnect or clear error; no response -> start timeout. Add a manual-device 65-minute soak with a real key.
@@ -297,7 +307,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **Automatic questions answer any 2+ word utterance (fillers, 'Thank you.', silence hallucinations), replacing the on-screen answer and spending the user's OpenAI quota** · medium · confirmed · `apps/desktop/src/App.tsx:387`
 
-- **Status:** Open
+- **Status:** Fixed (9c751b8)
 - **What happens:** The lone-word filter is the only guard. 'Okay, great.', 'Got it', 'Thank you.' or 'Sounds good' are 2+ words, so after 1.8 s the timer sets question, calls generate() and POSTs /answers. The previous answer moves into history and the pop-up flips to 'Working on it…' while the user is still reading it. In walkthrough mode it fires explainStep for chit-chat, which is a paid call. The server commits 15 s of silence (AudioTurns, core.ts:117), and speech-to-text models commonly emit short phrases such as 'Thank you.' for silence, which would take the same path. Bursts also eat the 12/min answers rate limit (index.ts:167), then 429. The ponytail ceiling (one word) is exceeded by everyday small talk.
 - **Verifier:** App.tsx:387 skips only a single-word utterance. 'Okay, great.', 'Got it' and 'Thank you.' pass after 1.8 s quiet and call generate/explainStep. That replaces the answer being read and spends the user's own OpenAI quota. In walkthrough mode with steps on screen it runs explainStep for chit-chat. The ponytail ceiling (one word) is exceeded by everyday small talk, so it is reachable in normal use. The silence-hallucination claim is conjecture. The 12/min limit (index.ts:167) is real.
 - **Test (unit):** Extract the decision at App.tsx:384-392 into a pure shouldAutoAnswer(text) in apps/desktop/src/api.ts. In apps/desktop/tests/core.test.ts assert false for 'Okay great', 'Thank you.', 'Got it', 'Mm-hmm yeah', and true for 'What is a hash map?'. A fake-timer test then asserts exactly one generate() per 1.8 s quiet window.
@@ -369,7 +379,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **Lease pollers treat any error as lease loss; the answers poller has no in-flight guard; no DB timeouts** · low · confirmed · `apps/api/src/index.ts:182`
 
-- **Status:** Open
+- **Status:** Fixed (b42a253)
 - **What happens:** The WS lease check (line 211) calls fail('Session paused, expired, or exhausted') for every error from active(). That includes the HttpError 503 'Database unavailable' from a Neon pooler blip, pool exhaustion, or a scale-from-zero cold start. One bad second ends the user's transcription mid-call, with a message blaming the session. The answers poller (line 182) does `.catch(()=>abort.abort())` on the same errors, so one transient failure kills an in-flight answer. It also lacks the `checking` guard the WS poller has. A slow DB makes the 1 s intervals stack overlapping queries per answer, which worsens pool starvation. Conversely, with no query timeout, a hung query leaves `checking=true` forever (line 211), so lease enforcement silently stops for that socket.
 - **Verifier:** index.ts:211 has a bare `catch{fail('Session paused, expired, or exhausted')}`, so a 503 from sql() ends transcription with a misleading message. Line 182 is `.catch(()=>abort.abort())` with no in-flight guard, so slow queries stack, unlike the WS `checking` flag. pg has no query timeout, so a hung query pins `checking=true`. All of this is as described. It only triggers on a DB blip, which is infrequent with 1 s polling keeping connections hot. The desktop already treats any single heartbeat failure as fatal, so this is consistent but fragile. There is no security impact because lease enforcement lives in the DB. Low.
 - **Test (integration):** In the test-database harness, open an SSE answer against a slow fake upstream and `pg_ctl restart -m fast` the cluster for ~2 s. Assert the stream and WS survive (or fail with a distinct 'service unavailable' message). Assert at most one in-flight active() per answer using a pg_sleep wrapper or pool.waitingCount.
@@ -405,7 +415,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **Handoff code is a bare bearer with no binding to the requesting desktop; ctrue:// deep link redeems silently (login CSRF)** · low · confirmed · `apps/api/src/index.ts:118`
 
-- **Status:** Open
+- **Status:** Fixed (a3e939d)
 - **What happens:** An attacker signs in on the website with their own account, calls /auth/handoff and gets a 60 s single-use code. They host a page that navigates a victim to `ctrue://auth?code=<code>`. The desktop's open-url handler (main.ts:122 -> handleLink) calls /auth/redeem immediately, with no confirmation and no nonce tying the code to a desktop-initiated request. The victim's desktop is silently signed in as the attacker, replacing its stored credentials. The victim's later PUT /profile (resume facts) is written to the attacker's account, readable from the attacker's dashboard. The attacker can mint 6 codes a minute (the handoff rate limit).
 - **Verifier:** main.ts:121-122 and 74-83: open-url calls handleLink -> parseHandoff -> immediate /auth/redeem -> storeTokens, replacing credentials with no confirmation or desktop-bound state. A code is a bare bearer for whichever account minted it, so login CSRF is real. The chain is long: the victim must accept the browser's ctrue:// protocol prompt, ignore the 'Signed in securely.' notice and the changed account, and then approve and save resume facts for the attacker to read. The OpenAI key is never stored server-side, so it does not leak. A `state` binding or a confirmation dialog is the right fix. Low.
 - **Test (e2e-electron):** Manual or Electron test: open `ctrue://auth?code=<code from account B>` while signed in as account A and assert a 'Sign in as B?' confirmation, or that redeem fails without a desktop-generated `state`. API-level test in test-database.mjs once a state parameter exists: redeem with a wrong or missing state -> 401.
@@ -441,7 +451,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **1 s lease polling writes to the DB on every call and, with pool=10 and cross-region RTT, caps concurrency near ~50 active users** · low · plausible · `database/migrations/002_unmetered.sql:17`
 
-- **Status:** Open — measured by npm run test:load: p95 79 ms at 25 live users, 185 ms at 75, 2.1 s at 150
+- **Status:** Fixed (b42a253) — sessions re-checked every 5 s: p95 137 ms at 150 live users (was 2.1 s); the cross-region distance remains
 - **What happens:** Each live user generates a WS lease check (1/s), an answer lease check (1/s while answering) and a heartbeat (0.2/s). Each call is one RPC that always runs `update accounts set balance_seconds=balance_seconds-0` (002:17) and `update sessions set elapsed_seconds=...` (002:18) even when elapsed is 0, so that is about 4 row writes/s/user of dead-tuple and WAL churn on Neon. /answers also runs action('account') plus a select just to read facts (index.ts:179). All calls serialize on the account row lock. The pool has max 10 (line 24). Render is in Oregon while the Neon Auth host is us-east-2 (render.yaml:39), so if DATABASE_URL is in the same project each query adds roughly 60 ms or more of RTT. At roughly 100 ms per call, 10 connections give about 100 qps, i.e. roughly 40-50 concurrent users before queueing, which then trips API-4.
 - **Verifier:** 002:14-19 runs two UPDATEs (accounts, sessions) on every call when an active session exists, even with elapsed=0 and charge=0, plus the FOR UPDATE locks. Each live user generates a WS poll at 1/s, a heartbeat at 0.2/s, and an answers poll at 1/s while answering. Pool max is 10. But the ~50-user ceiling rests on an assumed ~100 ms per call, and DATABASE_URL's region is not in the repo. Each call is a single round trip. It is a scale concern that has not been reached, not a current failure. Low.
 - **Test (performance):** Load script on the disposable cluster with injected 60 ms latency: N simulated users each polling `session_action(...,'get')` at 1-2 Hz plus 0.2 Hz heartbeats. Record p95 latency, pool.waitingCount and the pg_stat_user_tables n_tup_upd delta. Ramp N to 20/50/100 and assert p95 < 300 ms at the target N. Re-run after skipping zero-charge updates and sharing one poller per user.
@@ -684,7 +694,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **Shipped build has no hardened runtime or entitlements, and default Electron fuses, so local processes can ride Ctrue's TCC grants** · low · confirmed · `apps/desktop/scripts/adhoc-sign.cjs:12`
 
-- **Status:** Open — reported as warnings by npm run verify:release
+- **Status:** Fixed (8f5682f) — hardened runtime and fuses, checked by npm run verify:release
 - **What happens:** package.json sets hardenedRuntime and entitlements, but CSC_IDENTITY_AUTO_DISCOVERY=false skips electron-builder signing and the afterSign hook re-signs with `codesign --force --deep --sign <id>`. That call has no `--options runtime` and no `--entitlements`, so both are dropped. No @electron/fuses and no electronFuses config means RunAsNode, NODE_OPTIONS and --inspect stay enabled. Any same-user process can run `ELECTRON_RUN_AS_NODE=1 Ctrue.app/Contents/MacOS/Ctrue script.js` or DYLD-inject into the non-hardened binary and use Ctrue's Screen Recording and Microphone grants. The entitlement plist and the CSC_LINK/hardened path (hook returns early) have never been exercised, so the first Developer-ID build is untested.
 - **Verifier:** The facts are accurate. The afterSign hook runs `codesign --force --deep --sign <id>` with no `--options runtime` and no `--entitlements` (adhoc-sign.cjs:12). With CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder skips its own signing, so package.json hardenedRuntime/entitlements never apply. package.json has no electronFuses config, so RunAsNode and the inspect options stay at Electron defaults. This is the known class where a same-user process abuses an unhardened Electron app's TCC grants, for example via `open --env ELECTRON_RUN_AS_NODE=1`. It needs code already running as the user, and it only avoids a TCC prompt. For a free, self-signed app that is a hardening gap rather than a vulnerability, so low.
 - **Test (release):** In verify-release.mjs run `codesign -dvv --entitlements :- Ctrue.app` and expect the `runtime` flag and the audio-input and allow-jit entitlements, and run `npx @electron/fuses read --app Ctrue.app` expecting RunAsNode, NodeOptions and NodeCliInspect off. Pass `--options runtime --entitlements build/entitlements.mac.plist` in the hook, and test that a build launches and records audio with the hardened flag on.
@@ -702,7 +712,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **handleLink bumps credentialVersion before the code is redeemed, so a failed or duplicate link discards an in-flight refresh** · low · plausible · `apps/desktop/electron/main.ts:77`
 
-- **Status:** Open
+- **Status:** Fixed (a3e939d)
 - **What happens:** A refresh (version N) is in flight when any ctrue:// link arrives (an expired code, a double click firing the same code twice, a forged link). `++credentialVersion` runs before the redeem fetch. The redeem fails with 401, but storeTokens(…, N) now throws 'Sign-in changed while credentials were being refreshed.' The rotated pair is dropped, and disk and memory both keep the dead refresh token, which leads to 'Login expired'. For a duplicate code, link #1's tokens are issued server-side but rejected locally by link #2's version bump, and #2 fails with 'already used', so neither link signs the user in. The error text also says 'refreshed' for a sign-in.
 - **Verifier:** Code trace is correct. handleLink bumps `++credentialVersion` (L77) before the redeem fetch. If the redeem fails, an in-flight refresh's storeTokens(…, N) throws at L68 and drops the rotated pair. The old refresh token stays in memory and on disk, so the next refresh gives 'Login expired'. Two links with the same code would also cancel each other. A refresh must be in flight (<1 s window) when a failing link arrives. Duplicate same-code delivery is unlikely, because the dashboard's busy flag blocks double clicks and each click mints a new code. A forged or expired link only costs one forced re-login.
 - **Test (unit):** credentials.test.ts: interleave refresh() and handleLink() with a failing redeem. Assert the refreshed pair is stored. Two links with the same code must still end up signed in. Fix by bumping the version only after a successful redeem, or by capturing it at the point of storage.
@@ -738,7 +748,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **assertSender builds the expected file URL by string concatenation instead of pathToFileURL** · low · plausible · `apps/desktop/electron/main.ts:55`
 
-- **Status:** Open
+- **Status:** Fixed (f4cd2b5)
 - **What happens:** `new URL(`file://${path.join(__dirname,'../dist/index.html')}`)` does not percent-encode '#', '?' or '%' in the install path. The NSIS installer lets users pick any directory (allowToChangeInstallationDirectory), and a macOS user can run from a folder like '/Users/me/Apps #2/'. The real senderFrame.url is encoded while this string is not, so every ipc() call throws 'Untrusted application frame.' and the app renders with no config or credentials.
 - **Verifier:** L55 builds the expected URL with `new URL(`file://${path.join(...)}`)` instead of pathToFileURL. Spaces and non-ASCII characters are percent-encoded identically on both sides, and Windows drive-letter paths parse correctly. The comparison only breaks for a literal '#' or '?' in the install path, because Electron's loadFile encodes them and the string-built URL treats them as fragment or query. Default install paths (/Applications, Program Files) never contain them. Very rare, but it would make every IPC call throw. Low.
 - **Test (unit):** Unit-test the extracted check with paths containing space, '#', '%' and a Windows drive letter against senderFrame.url computed via pathToFileURL. Then switch to pathToFileURL(...).href.
@@ -765,7 +775,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **Default Electron application menu is left in the packaged app; Cmd+R, Cmd+W, Cmd+Q and DevTools act inside the shortcut recorder** · low · plausible · `apps/desktop/electron/main.ts:211`
 
-- **Status:** Open
+- **Status:** Fixed (a3e939d)
 - **What happens:** No Menu.setApplicationMenu call. While a shortcut field is focused, `recording(true)` unregisters all global shortcuts (L211), and `recording(false)` is only sent on blur. Pressing Cmd+R (menu Reload) reloads the page with no blur, so all global shortcuts stay unregistered until the app restarts. The same happens if the renderer crashes. Cmd+W hides the window and Cmd+Q quits mid-capture. Reload mid-session also ends the session via pagehide.
 - **Verifier:** No Menu.setApplicationMenu exists (Menu is used only for the tray), so Electron's default menu with Reload and DevTools remains in the packaged app. recording(true) unregisters all shortcuts and only blur re-registers them (L211, App.tsx:468). A reload or renderer crash while a shortcut field is focused would leave them unregistered. The specific Cmd+R-in-recorder trigger is weak, though. The recorder's onKeyDown calls preventDefault on every key except Tab, and on macOS the web contents see the key equivalent before the menu, so Cmd+R should be recorded as a shortcut rather than reload. The remaining paths (clicking View > Reload with the field focused, a renderer crash) are rare.
 - **Test (e2e-electron):** e2e-electron: focus a shortcut input, send Cmd+R, and assert globalShortcut.isRegistered(capture) after reload. Fix by re-registering on did-finish-load and render-process-gone, and by replacing the default menu with a minimal one that omits Reload and DevTools in packaged builds.
@@ -828,7 +838,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **One failed heartbeat (503, 429, timeout) stops live capture and pauses the session, although the server lease tolerates three misses** · low · confirmed · `apps/desktop/src/App.tsx:199`
 
-- **Status:** Open
+- **Status:** Fixed (9c751b8)
 - **What happens:** Live capture during a call. A heartbeat at the 5 s tick gets 'Database unavailable' (503, Neon wake-up), 429, a 15 s request timeout, or a transient network blip. The catch block at 199-207 immediately runs stopCapture(), aborts any answer in flight, sets the session to paused locally and shows 'Connection lost'. The server lease is 15 s (database/migrations/002_unmetered.sql:26,31) and production runs METERING=false, so there is no billing reason to stop. The user loses transcription mid-call and must press the capture shortcut again. Any error is treated the same way, including non-fatal ones.
 - **Verifier:** The catch at App.tsx:199-207 stops capture, aborts the answer and pauses locally on any heartbeat error. The behaviour is as described. It is deliberate fail-closed ('Connection lost. Capture stopped...'). It is also mostly redundant: the WS server lease check (index.ts:211) calls active() every 1 s and closes the socket on any DB error, and a network-level failure kills the WS anyway. 429 is implausible at 12 heartbeats a minute. Only a REST-only glitch, such as one 15 s timeout, is newly harmful. Downgraded to low.
 - **Test (integration):** apps/desktop/tests/app.test.tsx with fake timers: start a session and a fake capture, make the second heartbeat return 503 and the third 200. Assert capture is still live (or, if one miss is meant to stop it, that the behaviour is documented). Add a case where heartbeats fail for more than 15 s and assert the local pause.
@@ -891,7 +901,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **Screenshot shortcut clears collected screenshots before the answer succeeds, and the 5 MB body limit has no client-side guard** · low · confirmed · `apps/desktop/src/App.tsx:407`
 
-- **Status:** Open
+- **Status:** Fixed (9c751b8)
 - **What happens:** The user scrolls and collects 3 parts with the collect shortcut, then presses the screenshot shortcut. setShots([]) runs before generate(). If generate() fails (no OpenAI key 402, OpenAI 429, network, or 413 'Request exceeds size limit' for four photo-heavy 1920 px JPEGs against the 5 MB express.json limit, apps/api/src/index.ts:115), all collected screenshots are gone and the user must scroll and collect again. A fifth collect silently drops the oldest because of slice(-3). A shot taken while `collect` is still in flight is missed, because shots is a stale closure value, and is then cleared anyway.
 - **Verifier:** App.tsx:411 calls setShots([]) before generate(). Any failure (402, 429, network) loses the collected shots, and Regenerate does not re-attach images. slice(-3) silently drops the oldest. The 413 case is unlikely: four compact 1920 px JPEGs at q0.7 are about 2-3 MB against the 5 MB limit. Minor UX.
 - **Test (integration):** apps/desktop/tests/app.test.tsx: stub acquireScreen to return a canvas, collect 3 shots, make /answers return 429, trigger screenshot, and assert shots count is still 3 (or the popup tells the user they were discarded). Add a body-size assertion with 4 maximally sized compact images against the 5 MB cap.
@@ -900,7 +910,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **Screenshot shortcut with no recent speech forces 'coding' mode, ignoring the selected Technical, Behavioral or System design mode** · low · confirmed · `apps/desktop/src/App.tsx:414`
 
-- **Status:** Open
+- **Status:** Fixed (9c751b8)
 - **What happens:** Mode is 'system-design' and the user screenshots a design prompt. Without speech in the last 20 s, line 414 passes mode==='walkthrough' ? 'walkthrough' : 'coding'. The API answers with the coding prompt (code, complexity, edge cases) instead of components and tradeoffs. Behavioral and Technical screenshots are also answered as coding. The README says only that the shortcut 'answers' the screenshot.
 - **Verifier:** App.tsx:414 passes 'coding' for every non-walkthrough mode when no recent speech exists, so system-design, technical and behavioral screenshots get the coding prompt. The prompt text 'Read and solve the problem' suggests a coding assumption, so it may be a design choice, but it ignores the selected mode.
 - **Test (integration):** apps/desktop/tests/app.test.tsx: set mode to system-design, trigger the screenshot action with an empty transcript, and assert the /answers body has mode 'system-design' (or document that it is coding).
@@ -972,7 +982,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **Pop-up shortcut hint never refreshes after rebinding, and a partially failed Save leaves an action unbound yet persisted** · low · confirmed · `apps/desktop/src/Popup.tsx:21`
 
-- **Status:** Open
+- **Status:** Fixed (a3e939d)
 - **What happens:** Popup reads window.ctrue.config() once on mount, so after the user rebinds a key in Preferences the pop-up keeps showing the old shortcuts until relaunch. In Save shortcuts (App.tsx:468) the main process calls globalShortcut.unregisterAll() then registers each one (electron/main.ts:110-118) and writes settings.json even when some fail. The failed action then has no shortcut at all, not even its old one, and the failed combo is persisted, so it fails again on every launch. The renderer still sets config.shortcuts to the draft.
 - **Verifier:** Popup.tsx:21 reads config() once on mount, so the hint is stale after a rebind. main.ts:205-209 and 110-118 call unregisterAll(), register each, set shortcuts=next, and write settings.json even when some registrations fail. The failed action loses its old binding and the failure is re-persisted and re-hit on every launch. App.tsx:468 still sets config to the draft. Reachable with a combo owned by another app.
 - **Test (e2e-electron):** e2e-electron: rebind capture to a combo already held by another app, Save, and assert a clear error plus that the previous binding still works; relaunch and assert the same. Popup component test: dispatch a config-changed event and assert the hint updates.
@@ -999,7 +1009,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **The saved OpenAI key survives sign-out, so the next account on the same Mac silently uses the previous user's key** · low · confirmed · `apps/desktop/src/App.tsx:441`
 
-- **Status:** Open
+- **Status:** Fixed (9c751b8)
 - **What happens:** signout() clears context but not openai-key.enc. hasKey stays true (line 39), so a different Google account signing in on this Mac never sees the 'Add your OpenAI API key' panel, and their answers and transcription are billed to user A's key. Preferences does offer 'Remove key', but sign-out is labelled 'clear context' and gives no warning.
 - **Verifier:** main.ts:177-182 signout removes only credentials.enc. openai-key.enc stays, hasKey stays true, and needsKey is false for the next account, so it silently uses the stored key. The key is Mac-scoped and encrypted per OS user, and Preferences has Remove key, so whether this is a defect is a product decision. It only matters on a shared or multi-account Mac.
 - **Test (integration):** apps/desktop/tests/app.test.tsx: set a key, sign out, sign in as a different user, and assert either the key panel appears or a notice names the stored key. Decide the intended behaviour first.
@@ -1053,7 +1063,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **Website sends no CSP, frame-ancestors, nosniff or referrer policy, yet exposes a bearer JWT to page JS** · low · plausible · `apps/web/next.config.ts:2`
 
-- **Status:** Open — confirmed live by npm run probe:production
+- **Status:** Fixed (8f5682f)
 - **What happens:** next.config.ts only sets poweredByHeader:false and there is no vercel.json or headers(). /dashboard calls /api/auth/token and holds a 15-minute API JWT in module memory (lib/client.ts:6-19). Any future XSS, such as a markdown regression or a compromised dependency (next, react and typescript are 'latest'), can steal that token. The page can also be framed by any origin, so the 'Connect desktop' and 'Delete profile' buttons are clickjackable and the ctrue:// launch can be triggered in a hidden iframe. This also contradicts the project's own web security rule (always ship a production CSP).
 - **Verifier:** Factually true. next.config.ts sets only poweredByHeader:false, there is no vercel.json or headers(), and proxy.ts matches only /dashboard. The site ships no CSP, frame-ancestors or referrer policy. But no exploit exists today. markdown.tsx builds React elements and never injects HTML, and I found no dangerouslySetInnerHTML use. The clickjacking claim is largely blunted because @neondatabase/auth sets session cookies SameSite=Lax by default (server-pZf5ArnA.mjs lines 352, 621, 925), so a cross-site iframe loads /dashboard signed out and redirects to /login. Only a same-site sibling subdomain could frame it with cookies. This is a defence-in-depth gap, not a medium finding.
 - **Test (security):** Add a release-time script that runs `next start` and asserts that GET /dashboard and /login return content-security-policy (script-src without unsafe-inline, plus frame-ancestors 'none'), x-content-type-options: nosniff, and referrer-policy. Run it from check.yml after build. Use Playwright to confirm /dashboard still hydrates under the CSP.
@@ -1080,7 +1090,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **ctrue://auth link signs the desktop into any account without confirmation (login CSRF)** · low · plausible · `apps/desktop/electron/main.ts:121`
 
-- **Status:** Open
+- **Status:** Fixed (a3e939d)
 - **What happens:** handleLink (lines 74-84) validates only the shape of the link (parseHandoff), then redeems and stores the tokens, replacing the current sign-in. Any web page the user visits can run location='ctrue://auth?code=<attacker's own freshly issued code>' and the installed app silently becomes the attacker's account. The victim's later facts, usage records and sessions attach to the attacker's account, and the attacker controls the profile facts injected into the victim's answers. The 60-second, single-use code limits the window but not the substitution. The web side (dashboard line 28) has no matching nonce or state check.
 - **Verifier:** handleLink (main.ts:74-84) validates only the link's shape, then redeems and replaces the stored tokens. The second-instance and open-url handlers (main.ts:121-122) call it with no confirmation, and the dashboard sends no state or nonce (page.tsx:28). That is a classic login-CSRF. The mitigations are real. The attacker's code lasts 60 seconds, is single-use and is rate limited to 6/min per user, so it must be generated just in time for each victim. The browser also shows its own 'open this app?' prompt for ctrue://. The attacker gains little: the victim's saved resume facts would go to the attacker's account, and the attacker's facts would be injected into the victim's answers. Low.
 - **Test (manual-device):** Manual: while signed in as A, open an HTML page that navigates to ctrue://auth?code=<code issued for B> and expect a confirmation dialog naming the target account; today it switches silently. Automatable part: after adding a confirm step, an e2e-electron test that handleLink does not call /auth/redeem until acknowledged.
