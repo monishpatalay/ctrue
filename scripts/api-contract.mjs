@@ -15,7 +15,7 @@ const SPEECH = Buffer.alloc(9600), SILENCE = Buffer.alloc(9600); // 200 ms of 24
 for (let i = 0; i < SPEECH.length; i += 2) SPEECH.writeInt16LE(3000, i);
 
 // Starts an API process with these settings and waits until it answers.
-async function launch(port, env) {
+export async function launch(port, env) {
   const api = spawn(process.execPath, ['--import', 'tsx', 'apps/api/src/index.ts'], { env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', NODE_ENV: 'test', DEMO_MODE: 'false', METERING: 'false', OPENAI_API_KEY: '', ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
   let logs = '';
   api.stdout.on('data', chunk => { logs += chunk; });

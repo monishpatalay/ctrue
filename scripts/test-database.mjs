@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
 import { SignJWT, exportJWK, generateKeyPair } from 'jose';
 import { contract } from './api-contract.mjs';
+import { load } from './load.mjs';
 import { startMockOpenAI } from './mock-openai.mjs';
 
 // ponytail: a disposable local PostgreSQL cluster verifies the actual money RPCs;
@@ -94,6 +95,7 @@ async function live() {
     // A bad key is only discovered when OpenAI is called, after the answer stream has started.
     assert.match(rejected.text, /event: error[\s\S]*Your OpenAI API key was rejected/);
     await contract({ databaseUrl, authBase, origin, privateKey, token: subject => jwt(origin, subject) });
+    if (process.argv.includes('--load')) await load({ socket, authBase, token: subject => jwt(origin, subject) });
   } finally {
     api.kill('SIGTERM');
     if (api.exitCode === null) await once(api, 'exit');
