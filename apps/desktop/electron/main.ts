@@ -71,6 +71,11 @@ async function storeTokens(value: unknown, version: number) {
     tokenPair = pair;
   });
 }
+// Forgets this desktop's credential locally; a request still in flight with the old one is then ignored.
+async function forgetCredentials() {
+  credentialVersion++; tokenPair = null;
+  await writeCredentials(async () => { try { await unlink(tokensPath()); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; } });
+}
 async function handleLink(value: string) {
   try {
     const code = parseHandoff(value);
@@ -86,8 +91,11 @@ async function performRefresh(version: number) {
   if (!tokenPair) return null;
   // The API rotates this desktop's own credential; the previous refresh token stops working at once.
   const response = await fetch(`${api}/auth/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: tokenPair.refreshToken }), signal: AbortSignal.timeout(15000) });
-  const body = await response.json();
-  if (!response.ok || !body.accessToken || !body.refreshToken) throw new Error('Login expired. Sign in again.');
+  // 401: the server revoked, expired or already rotated this credential, so it can never work again. Drop it and let the
+  // renderer show Sign in. Anything else (offline, 5xx, rate limit) keeps it for a later retry.
+  if (response.status === 401) { if (version === credentialVersion) await forgetCredentials(); return null; }
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body.accessToken || !body.refreshToken) throw new Error(body.error || `Could not refresh your login (${response.status}). Check your connection and try again.`);
   await storeTokens({ accessToken: body.accessToken, refreshToken: body.refreshToken }, version);
   return tokenPair!.accessToken;
 }
@@ -144,12 +152,13 @@ else {
     window.webContents.on('will-navigate', (event, url) => { if (!rendererURL || new URL(url).origin !== new URL(rendererURL).origin) event.preventDefault(); });
     const connect = `${api} ${api.replace(/^http/, 'ws')}`;
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => callback({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': [`default-src 'self'; script-src 'self'${rendererURL ? " 'unsafe-inline'" : ''}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ${connect}${rendererURL ? ' ws://127.0.0.1:5173' : ''}; media-src 'self' blob:; worker-src 'self'; object-src 'none'; base-uri 'self'`] } }));
+    // Capture belongs to the main window only; both windows may write to the clipboard (their Copy buttons).
+    const allowed = (contents: Electron.WebContents | null, permission: string) => (contents === window.webContents && ['media', 'display-capture'].includes(permission)) || ((contents === window.webContents || contents === popup.webContents) && permission === 'clipboard-sanitized-write');
     session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
       const origin = details.requestingUrl || contents.getURL();
-      const trusted = contents === window.webContents && (rendererURL ? origin.startsWith(rendererURL) : origin.startsWith('file://'));
-      callback(trusted && ['media', 'display-capture'].includes(permission));
+      callback((rendererURL ? origin.startsWith(rendererURL) : origin.startsWith('file://')) && allowed(contents, permission));
     });
-    session.defaultSession.setPermissionCheckHandler((contents, permission) => contents === window.webContents && ['media', 'display-capture'].includes(permission));
+    session.defaultSession.setPermissionCheckHandler((contents, permission) => allowed(contents, permission));
     session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
       if (!captureGrant || request.frame !== window.webContents.mainFrame) { callback({}); return; }
       captureGrant = false;
@@ -176,7 +185,7 @@ else {
     ipc('ctrue:refresh', refresh);
     ipc('ctrue:signout', async () => {
       const revoked = tokenPair?.refreshToken;
-      credentialVersion++; tokenPair = null; await writeCredentials(async () => { try { await unlink(tokensPath()); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; } });
+      await forgetCredentials();
       // Local sign-out must work offline; an unreachable API leaves the server credential to expire on its own.
       if (revoked) await fetch(`${api}/auth/logout`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: revoked }), signal: AbortSignal.timeout(5000) }).catch(() => {});
     });
