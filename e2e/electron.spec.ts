@@ -14,6 +14,10 @@ const desktop = resolve(__dirname, '../apps/desktop');
 const FAKE = 'http://127.0.0.1:54319';
 let root: string, api: Server, app: ElectronApplication, main: Page, profile: string;
 let refreshStatus = 401;
+// Emails for the next redeemed sign-in links; an access token not listed here has been revoked (401).
+let redeemAs: string[] = [];
+const signedIn = new Map<string, string>();
+const logouts: string[] = [];
 
 test.beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'ctrue-electron-'));
@@ -26,15 +30,21 @@ test.beforeAll(async () => {
   process.env.VITE_API_URL = FAKE;
   await vite({ root: desktop, configFile: join(desktop, 'vite.config.ts'), logLevel: 'error', build: { outDir: join(root, 'dist'), emptyOutDir: true } });
   api = createServer(async (req, res) => {
-    for await (const _ of req) { /* drain */ }
+    let raw = ''; for await (const chunk of req) raw += chunk;
     const json = (status: number, value: unknown) => res.writeHead(status, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' }).end(JSON.stringify(value));
     if (req.method === 'OPTIONS') return json(204, {});
     if (req.url === '/health') return json(200, { status: 'ok', mode: 'live', configured: { auth: true, ai: true } });
-    if (req.url === '/auth/redeem') return json(200, { accessToken: 'a'.repeat(64), refreshToken: 'r'.repeat(64) });
+    if (req.url === '/auth/redeem') {
+      const email = redeemAs.shift(), access = (email ? Buffer.from(email).toString('hex') : '').padEnd(64, 'a').slice(0, 64);
+      if (email) signedIn.set(access, email);
+      return json(200, { accessToken: access, refreshToken: `r${access.slice(1)}` });
+    }
     if (req.url === '/auth/refresh') return json(refreshStatus, { error: refreshStatus === 401 ? 'Login expired. Sign in again' : 'Database unavailable' });
-    if (req.url === '/auth/logout') return json(200, { signedOut: true });
-    // Every desktop token this fake issues has already been revoked on the "server".
-    if (req.url === '/account') return json(401, { error: 'Sign in again' });
+    if (req.url === '/auth/logout') { logouts.push(JSON.parse(raw).refreshToken); return json(200, { signedOut: true }); }
+    if (req.url === '/account') {
+      const email = signedIn.get(String(req.headers.authorization).replace('Bearer ', ''));
+      return email ? json(200, { balanceSeconds: 0, plan: 'owner', email, metered: false }) : json(401, { error: 'Sign in again' });
+    }
     json(404, { error: 'Not found' });
   });
   api.listen(54319, '127.0.0.1');
@@ -54,6 +64,12 @@ test.afterEach(async () => { await app?.close(); rmSync(profile, { recursive: tr
 
 const popup = async () => { await expect.poll(() => app.windows().length).toBe(2); return app.windows().find(w => w.url().endsWith('#popup'))!; };
 const signIn = () => app.evaluate(({ app }) => { app.emit('open-url', { preventDefault() {} }, `ctrue://auth?code=${'c'.repeat(64)}`); });
+// Answers the next native dialog with this button and records what it asked.
+const answerDialog = (button: number) => app.evaluate(({ dialog }, button) => {
+  const asked: string[] = ((globalThis as unknown as { asked?: string[] }).asked ||= []);
+  dialog.showMessageBox = (async (...args: unknown[]) => { const options = args.at(-1) as { message: string }; asked.push(options.message); return { response: button, checkboxChecked: false }; }) as typeof dialog.showMessageBox;
+}, button);
+const dialogs = () => app.evaluate(() => (globalThis as unknown as { asked?: string[] }).asked || []);
 
 test('opens the main window and a hidden pop-up; closing the pop-up only hides it', async () => {
   const panel = await popup();
@@ -117,4 +133,41 @@ test('a failed update check says so instead of claiming Ctrue is up to date (ELE
   await main.getByRole('button', { name: 'Check for updates' }).click();
   await expect(main.getByRole('alert')).toContainText('Could not check for updates');
   await expect(main.getByText('You have the latest version')).toHaveCount(0);
+});
+
+test('the app menu has no reload or developer tools; copy and paste still work in text fields (improvement 3)', async () => {
+  const roles = await app.evaluate(({ Menu }) => {
+    const walk = (items: Electron.MenuItem[]): string[] => items.flatMap(item => [String(item.role || ''), ...(item.submenu ? walk(item.submenu.items) : [])]);
+    const menu = Menu.getApplicationMenu();
+    return menu ? walk(menu.items).map(role => role.toLowerCase()) : [];
+  });
+  for (const role of ['reload', 'forcereload', 'toggledevtools']) expect(roles).not.toContain(role);
+  if (process.platform === 'darwin') expect(roles).toEqual(expect.arrayContaining(['copy', 'paste', 'selectall', 'quit']));
+});
+
+test('a sign-in link for another account asks first, and keeps the current one unless told to switch (improvement 6)', async () => {
+  redeemAs = ['one@example.com', 'two@example.com', 'two@example.com', 'one@example.com'];
+  await signIn();
+  await expect(main.locator('.account-line strong')).toHaveText('one');
+  await answerDialog(1);
+  await signIn();
+  await expect.poll(dialogs).toEqual(['Switch Ctrue to two@example.com?']);
+  await expect(main.locator('.account-line strong')).toHaveText('one');
+  expect(logouts).toHaveLength(1);
+  await answerDialog(0);
+  await signIn();
+  await expect(main.locator('.account-line strong')).toHaveText('two');
+  // The same account again needs no question.
+  await answerDialog(1);
+  redeemAs = ['two@example.com'];
+  await signIn();
+  await expect(main.getByText('Signed in securely.')).toBeVisible();
+  expect(await dialogs()).toHaveLength(2);
+});
+
+test('the pop-up shows new shortcuts as soon as they are saved (improvement 8)', async () => {
+  const panel = await popup();
+  await expect(panel.locator('.popup-hint')).toContainText('listen');
+  await main.evaluate(() => (window as unknown as { ctrue: { shortcuts(v: unknown): Promise<string[]> } }).ctrue.shortcuts({ capture: 'Alt+Shift+K' }));
+  await expect(panel.locator('.popup-hint')).toContainText('⌥⇧K listen');
 });

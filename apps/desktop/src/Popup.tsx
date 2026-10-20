@@ -3,6 +3,7 @@ import { prettyShortcut } from './api';
 import { Markdown } from './Markdown';
 import type { WalkStep } from './steps';
 const key = (value: string) => prettyShortcut(value).replaceAll(' ', '');
+const hintFor = (shortcuts: Record<string, string>) => `${key(shortcuts.capture)} listen · ${key(shortcuts.screenshot)} answer screen · ${key(shortcuts.collect)} add screen · ${key(shortcuts.hide)} hide`;
 import './popup.css';
 
 // The pop-up only displays what the main window sends it and passes follow-up questions back.
@@ -18,8 +19,11 @@ export function Popup() {
   const [micKept, setMicKept] = useState(false);
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    void window.ctrue?.config().then(({ shortcuts }) => setHint(`${key(shortcuts.capture)} listen · ${key(shortcuts.screenshot)} answer screen · ${key(shortcuts.collect)} add screen · ${key(shortcuts.hide)} hide`)).catch(() => {});
-    return window.ctrue?.onEvent(event => { if (event.action === 'popup-state') { setState({ ...initial, ...(event.payload as Partial<PopupState>) }); setCopied(false); } });
+    void window.ctrue?.config().then(({ shortcuts }) => setHint(hintFor(shortcuts))).catch(() => {});
+    return window.ctrue?.onEvent(event => {
+      if (event.action === 'popup-state') { setState({ ...initial, ...(event.payload as Partial<PopupState>) }); setCopied(false); }
+      else if (event.action === 'shortcuts') setHint(hintFor(event.payload as Record<string, string>));
+    });
   }, []);
   useEffect(() => { if (!state.walk) body.current?.scrollTo({ top: body.current.scrollHeight }); }, [state.answer, state.heard, state.walk]);
   useEffect(() => { body.current?.scrollTo({ top: 0 }); }, [state.walk?.index]);

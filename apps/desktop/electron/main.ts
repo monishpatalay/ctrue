@@ -1,4 +1,4 @@
-import { app, BrowserWindow, desktopCapturer, globalShortcut, ipcMain, Menu, nativeImage, safeStorage, screen, session, shell, systemPreferences, Tray } from 'electron';
+import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, safeStorage, screen, session, shell, systemPreferences, Tray } from 'electron';
 import { readFile, writeFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { autoUpdater } from 'electron-updater';
@@ -76,14 +76,25 @@ async function forgetCredentials() {
   credentialVersion++; tokenPair = null;
   await writeCredentials(async () => { try { await unlink(tokensPath()); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; } });
 }
+const accountEmail = (accessToken: string) => fetch(`${api}/account`, { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(15000) })
+  .then(response => response.ok ? response.json() : {}, () => ({})).then((account: { email?: unknown }) => typeof account.email === 'string' ? account.email : '');
 async function handleLink(value: string) {
   try {
     const code = parseHandoff(value);
-    const version = ++credentialVersion;
     const response = await fetch(`${api}/auth/redeem`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }), signal: AbortSignal.timeout(15000) });
     const body = await response.json();
     if (!response.ok) throw new Error(body.error || 'Login link expired. Sign in again.');
-    await storeTokens(body, version);
+    // A link opened while signed in may belong to someone else's account: name it and ask before replacing this one.
+    if (tokenPair && typeof body.accessToken === 'string') {
+      const [current, next] = await Promise.all([accountEmail(tokenPair.accessToken), accountEmail(body.accessToken)]);
+      if (!current || current !== next) {
+        restore();
+        const { response: choice } = await dialog.showMessageBox(window, { type: 'question', buttons: ['Switch account', `Keep ${current || 'the current account'}`], defaultId: 1, cancelId: 1, message: `Switch Ctrue to ${next || 'another account'}?`, detail: 'A sign-in link was opened while you are signed in. Switch only if you just signed in on the Ctrue website yourself.' });
+        if (choice !== 0) { void fetch(`${api}/auth/logout`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: body.refreshToken }), signal: AbortSignal.timeout(5000) }).catch(() => {}); return; }
+      }
+    }
+    // Counted only now, so a declined or failed link never discards a refresh that is still in flight.
+    await storeTokens(body, ++credentialVersion);
     restore(); emit('auth', { accessToken: tokenPair!.accessToken });
   } catch (error) { restore(); emit('error', error instanceof Error ? error.message : 'Sign-in failed.'); }
 }
@@ -213,6 +224,7 @@ else {
     ipc('ctrue:popup-step', delta => { if (delta !== 1 && delta !== -1) throw new Error('Invalid step move.'); emit(delta === 1 ? 'next' : 'previous'); });
     ipc('ctrue:shortcuts', async value => {
       const next = validateShortcuts(value); const failures = registerShortcuts(next);
+      popup.webContents.send('ctrue:event', { action: 'shortcuts', payload: next });
       await writeFile(settingsPath(), JSON.stringify({ shortcuts: next }), { mode: 0o600 });
       return failures;
     });
@@ -250,6 +262,9 @@ else {
     ipc('ctrue:install-update', () => { if (!autoUpdate) throw new Error('This build cannot install updates itself.'); quitting = true; autoUpdater.quitAndInstall(); });
     try { shortcuts = validateShortcuts(JSON.parse(await readFile(settingsPath(), 'utf8')).shortcuts); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') console.warn('Saved shortcuts could not be loaded:', error); }
     const failures = registerShortcuts(shortcuts);
+    // No View menu: Cmd+R would reload the window and wipe the conversation mid-call, and developer tools stay out of the
+    // shipped app. The Edit menu keeps copy, paste and select-all working in text fields on macOS.
+    Menu.setApplicationMenu(process.platform === 'darwin' ? Menu.buildFromTemplate([{ label: app.name, submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'quit' }] }, { role: 'editMenu' }, { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'close' }] }]) : null);
     tray = new Tray(nativeImage.createFromPath(path.join(app.getAppPath(), 'build/tray.png')).resize({ width: 18, height: 18 }));
     tray.setToolTip('Ctrue'); tray.setContextMenu(Menu.buildFromTemplate([{ label: 'Show Ctrue', click: restore }, { label: 'Hide Ctrue', click: () => window.hide() }, { type: 'separator' }, { label: 'Quit Ctrue', click: () => app.quit() }])); tray.on('click', restore);
     if (rendererURL) await window.loadURL(rendererURL); else await window.loadFile(path.join(__dirname, '../dist/index.html'));
