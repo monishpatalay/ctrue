@@ -62,12 +62,18 @@ test('document expansion guard rejects malformed and oversized ZIPs',()=>{
 });
 test('audio byte budget allows realtime with jitter but rejects accelerated audio',()=>{
   let now=0;const budget=new AudioBudget(()=>now);
-  budget.consume(48000);budget.consume(48000);
+  budget.consume(480000);
   assert.throws(()=>budget.consume(2),/realtime/);
   for(let n=0;n<100;n++){now+=200;assert.doesNotThrow(()=>budget.consume(9600));}
-  now+=100000;budget.consume(96000);
+  now+=100000;budget.consume(480000);
   assert.throws(()=>budget.consume(2),/realtime/);
   assert.throws(()=>budget.consume(-1),/Invalid/);
+});
+test('audio the desktop buffered through an 8 s network stall is accepted when it arrives in one burst',()=>{
+  // The desktop keeps up to ~8 s of 200 ms frames queued before giving up (capture.ts); all of it lands at once.
+  let now=0;const budget=new AudioBudget(()=>now);
+  for(let n=0;n<40;n++)budget.consume(9600);
+  for(let n=0;n<50;n++){now+=200;assert.doesNotThrow(()=>budget.consume(9600));}
 });
 test('a user OpenAI key must look like one before it is used', () => {
   assert.equal(openaiKey('  sk-proj-abcdefghijklmnopqrstuvwxyz0123  '), 'sk-proj-abcdefghijklmnopqrstuvwxyz0123');

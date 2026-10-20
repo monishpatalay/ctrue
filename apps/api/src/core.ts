@@ -92,13 +92,16 @@ export function docxSize(buffer:Buffer) {
   }
   if(offset!==centralEnd)throw new HttpError(400,'Invalid DOCX archive');
 }
+// Realtime is 48,000 bytes/s of 24 kHz PCM16. The 10 s burst covers what the desktop queues through a network stall
+// before it gives up (~8 s, capture.ts), so a stall that recovers does not end capture.
+const AUDIO_BURST_BYTES=480000;
 export class AudioBudget {
-  private available=96000; private updatedAt:number;
+  private available=AUDIO_BURST_BYTES; private updatedAt:number;
   constructor(private now=()=>performance.now()) {this.updatedAt=now();}
   consume(bytes:number) {
     if(!Number.isSafeInteger(bytes)||bytes<=0||bytes%2!==0)throw new HttpError(400,'Invalid PCM byte count');
     const stamp=Math.max(this.updatedAt,this.now());
-    this.available=Math.min(96000,this.available+(stamp-this.updatedAt)*48);this.updatedAt=stamp;
+    this.available=Math.min(AUDIO_BURST_BYTES,this.available+(stamp-this.updatedAt)*48);this.updatedAt=stamp;
     if(bytes>this.available)throw new HttpError(429,'Audio exceeds realtime speed');
     this.available-=bytes;
   }

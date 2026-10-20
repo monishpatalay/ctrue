@@ -66,6 +66,7 @@ export async function startAudio(options: { stream: MediaStream; micId?: string;
       options.onLevel(level);
       if (rate !== 24000) { options.onError('Audio sample rate changed. Restart capture.'); void stop(); return; }
       if (ready && ws.readyState === WebSocket.OPEN) {
+        // ~8 s of queued audio; the API's AudioBudget accepts a 10 s burst, so keep this below that when changing it.
         if (ws.bufferedAmount > 512000) { options.onError('Network is too slow for live audio. Capture stopped.'); void stop(); return; }
         ws.send(JSON.stringify({ type: 'audio', data: encodeBase64(pcm) }));
       }
