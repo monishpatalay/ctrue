@@ -116,6 +116,9 @@ test('replaying walkthrough steps rebuilds the final code, including replacement
   assert.deepEqual(buildCode([step('a'), step('b', 'replace', 'zzz')]).missing, ['b']);
   assert.equal(buildCode([step('fresh', 'replace', 'old brute force'), step('more')]).code, 'fresh\nmore', 'a first optimized step that replaces the brute force starts the file');
   assert.equal(stepsMatchFinal(steps.slice(0, 4)), null, 'no verdict before the final step arrives');
+  // Code is inserted literally: "$'" and "$&" are replacement patterns to String.replace, not to the solution.
+  const dollars = [step('function clean(s) {\n  return s;\n}'), step("  return s.replace('$', '').replace(/x/g, '$&$&');", 'replace', '  return s;')];
+  assert.equal(buildCode(dollars).code, "function clean(s) {\n  return s.replace('$', '').replace(/x/g, '$&$&');\n}");
   assert.match(resumeContext(steps.slice(0, 2)), /^Steps already delivered/);
   assert.equal(resumeContext([]), '');
 });

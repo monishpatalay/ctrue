@@ -12,7 +12,8 @@ export function buildCode(steps: WalkStep[], phase: WalkStep['phase'] = 'optimal
     if (step.kind !== 'step' || step.phase !== phase || !step.code) continue;
     if (step.action === 'replace' && step.replaces) {
       const target = normalize(step.replaces), current = normalize(code);
-      if (current.includes(target)) code = current.replace(target, normalize(step.code));
+      // A function replacer inserts the code literally; a string would treat "$'" or "$&" in it as patterns.
+      if (current.includes(target)) { const replacement = normalize(step.code); code = current.replace(target, () => replacement); }
       else if (!current) code = normalize(step.code); // replacing the brute force with a fresh start
       else missing.push(step.title);
     } else code = code ? `${normalize(code)}\n${normalize(step.code)}` : normalize(step.code);
