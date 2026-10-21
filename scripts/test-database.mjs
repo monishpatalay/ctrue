@@ -10,6 +10,7 @@ import { SignJWT, exportJWK, generateKeyPair } from 'jose';
 import { contract } from './api-contract.mjs';
 import { load } from './load.mjs';
 import { realAI } from './real-ai.mjs';
+import { hearing } from './hearing.mjs';
 import { startMockOpenAI } from './mock-openai.mjs';
 
 // ponytail: a disposable local PostgreSQL cluster verifies the actual money RPCs;
@@ -98,6 +99,7 @@ async function live() {
     await contract({ databaseUrl, authBase, origin, privateKey, token: subject => jwt(origin, subject) });
     if (process.argv.includes('--load')) await load({ socket, authBase, token: subject => jwt(origin, subject) });
     if (process.argv.includes('--ai')) await realAI({ databaseUrl, authBase, token: subject => jwt(origin, subject) });
+    if (process.argv.includes('--hearing')) await hearing({ databaseUrl, authBase, token: subject => jwt(origin, subject) }, process.env.HEARING_SETUPS ? JSON.parse(process.env.HEARING_SETUPS) : undefined);
   } finally {
     api.kill('SIGTERM');
     if (api.exitCode === null) await once(api, 'exit');

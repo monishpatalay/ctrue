@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {deflateRawSync} from 'node:zlib';
-import {AudioBudget,AudioTurns,DemoStore,Handoffs,StepScanner,docxSize,imageData,openaiKey,prompt,toWalkStep,uuid,walkPrompt} from '../src/core.js';
+import {AudioBudget,DemoStore,Handoffs,StepScanner,docxSize,imageData,openaiKey,prompt,toWalkStep,uuid,walkPrompt} from '../src/core.js';
 test('lease expiry caps disconnected charges; pause/resume/end are idempotent',()=>{
   let now=0;const store=new DemoStore(()=>now),first=store.action(null,'start');
   assert.equal(store.action(null,'start').id,first.id);
@@ -23,21 +23,6 @@ test('handoff is random, single-use, expires; untrusted boundary inputs rejected
   const b=h.issue({id:'other'});now=60000;assert.throws(()=>h.redeem(b.code),/expired/);
   assert.throws(()=>imageData('https://example.com/private'),/Expected/);assert.throws(()=>uuid('../bad'),/Invalid/);
   assert.match(prompt('behavioral','Built a tool'),/Never invent/);
-});
-test('PCM turn commits only after voiced speech followed by silence',()=>{
-  const turns=new AudioTurns(),speech=Buffer.alloc(4800),silence=Buffer.alloc(4800);
-  for(let i=0;i<speech.length;i+=2)speech.writeInt16LE(2000,i);
-  assert.equal(turns.append(silence),null);assert.equal(turns.append(speech),null);
-  for(let i=0;i<5;i++)assert.equal(turns.append(silence),null);assert.equal(turns.append(silence),'commit');
-});
-test('fifteen seconds of pure silence is cleared, never sent for transcription',()=>{
-  const turns=new AudioTurns(),second=Buffer.alloc(48000),voiced=Buffer.alloc(48000);
-  for(let i=0;i<voiced.length;i+=2)voiced.writeInt16LE(2000,i);
-  for(let i=0;i<14;i++)assert.equal(turns.append(second),null);
-  assert.equal(turns.append(second),'clear','silence must not be committed: the provider invents text from it');
-  // Speech that is still going at the 15 s cap is committed so long monologues are transcribed in pieces.
-  for(let i=0;i<14;i++)turns.append(voiced);
-  assert.equal(turns.append(voiced),'commit');
 });
 test('rapid pause/resume carries fractional usage instead of granting free seconds',()=>{
   let now=0;const store=new DemoStore(()=>now),s=store.action(null,'start');

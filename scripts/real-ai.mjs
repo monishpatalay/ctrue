@@ -34,7 +34,7 @@ export async function realAI({ databaseUrl, authBase, token }) {
   const key = process.env.CTRUE_TEST_OPENAI_KEY;
   if (!key) throw new Error('Set CTRUE_TEST_OPENAI_KEY to run the real OpenAI checks (they use your own key and cost a few cents).');
   const api = await launch(PORT, { DATABASE_URL: databaseUrl, NEON_AUTH_BASE_URL: authBase, TRUST_PROXY: '1' });
-  const report = ['# Real OpenAI run', '', `Model ${process.env.OPENAI_MODEL || 'gpt-4.1-mini'}; transcription ${process.env.OPENAI_TRANSCRIPTION_MODEL || 'gpt-live-transcribe'}.`, ''];
+  const report = ['# Real OpenAI run', '', `Model ${process.env.OPENAI_MODEL || 'gpt-4.1-mini'}; transcription gpt-4o-mini-transcribe.`, ''];
   const bearer = await token('real-ai'), headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}` };
   const call = async (path, body, method = 'POST') => (await fetch(base + path, { method, headers, body: body && JSON.stringify(body) })).json();
   let heartbeat;

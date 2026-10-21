@@ -39,10 +39,6 @@ services:
         value: https://ep-calm-moon-b5v7zn9p.neonauth.c-7.us-east-2.aws.neon.tech/neondb/auth
       - key: OPENAI_MODEL
         value: gpt-4.1-mini
-      - key: OPENAI_TRANSCRIPTION_MODEL
-        value: gpt-live-transcribe
-      - key: AUDIO_VAD_THRESHOLD
-        value: "0.01"
       - key: AUDIO_SILENCE_MS
         value: "600"
       - key: TRIAL_SECONDS

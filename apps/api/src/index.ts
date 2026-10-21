@@ -10,7 +10,7 @@ import { createRemoteJWKSet, errors, jwtVerify } from 'jose';
 import OpenAI from 'openai';
 import pdf from 'pdf-parse/lib/pdf-parse.js';
 import mammoth from 'mammoth';
-import { AudioBudget, AudioTurns, DemoStore, Handoffs, HttpError, LANGUAGES, StepScanner, WALK_SCHEMA, docxSize, imageData, openaiKey, prompt, sha256, string, toWalkStep, uuid, walkPrompt, type Session } from './core.js';
+import { AudioBudget, DemoStore, Handoffs, HttpError, LANGUAGES, StepScanner, WALK_SCHEMA, docxSize, imageData, openaiKey, prompt, sha256, string, toWalkStep, uuid, walkPrompt, type Session } from './core.js';
 
 // apps/api/.env wins; the repo-root .env.local is where `neon deploy` and `neon env pull` write DATABASE_URL.
 dotenv.config({path:['.env','../../.env.local'],quiet:true});
@@ -44,8 +44,8 @@ const origins=new Set((env.ALLOWED_ORIGINS||'http://localhost:3000,http://127.0.
 function originAllowed(origin:string|undefined) { return !origin || origin==='null' || origin==='file://' || origins.has(origin); }
 const trial=Number(env.TRIAL_SECONDS||600);
 if(!Number.isInteger(trial)||trial<0||trial>36000) throw new Error('Invalid TRIAL_SECONDS');
-const vadThreshold=Number(env.AUDIO_VAD_THRESHOLD||0.01),silenceMs=Number(env.AUDIO_SILENCE_MS||600);
-if(!Number.isFinite(vadThreshold)||vadThreshold<=0||vadThreshold>=1||!Number.isFinite(silenceMs)||silenceMs<200||silenceMs>3000)throw new Error('Invalid audio VAD calibration');
+const silenceMs=Number(env.AUDIO_SILENCE_MS||600);
+if(!Number.isFinite(silenceMs)||silenceMs<200||silenceMs>3000)throw new Error('Invalid AUDIO_SILENCE_MS');
 type User={id:string;email?:string;desktop:boolean};
 async function authenticate(token:string):Promise<User> {
   if(demo) { if(token!=='demo')throw new HttpError(401,'Demo accepts only demo credentials');return {id:'demo',email:'demo@localhost',desktop:false}; }
@@ -225,7 +225,9 @@ const transcribing=new Map<string,WebSocket>();
 wss.on('connection',(socket,req)=>{
   if(!originAllowed(req.headers.origin)){socket.close(1008,'Origin denied');return;}
   let uid:string|undefined, sessionId:string|undefined, provider:WebSocket|undefined,started=false,ready=false,busy=false,checking=false;
-  const turns=new AudioTurns(vadThreshold,silenceMs),budget=new AudioBudget();
+  // heardMs: audio sent to OpenAI so far, to tell the app how long ago a turn's speech ended. OpenAI's audio_end_ms
+  // includes the silence it waited for (measured), so the speech itself ended silenceMs earlier.
+  const budget=new AudioBudget();let heardMs=0;
   const startup=setTimeout(()=>socket.close(1008,'Start message required'),10000);
   const send=(value:unknown)=>{if(socket.readyState===WebSocket.OPEN)socket.send(JSON.stringify(value));};
   const fail=(error:string)=>{send({type:'error',error});socket.close(1011,'Transcription stopped');provider?.close();};
@@ -249,8 +251,10 @@ wss.on('connection',(socket,req)=>{
         provider.on('unexpected-response',(_request,response)=>fail(response.statusCode===401?'Your OpenAI API key was rejected. Check it in Preferences':'Could not connect to transcription provider'));
         // No forced language: forcing English made Hindi come back translated into English. Each language now comes back
         // as itself, and the desktop drops anything that is not English.
-        provider.on('open',()=>provider?.send(JSON.stringify({type:'session.update',session:{type:'transcription',audio:{input:{format:{type:'audio/pcm',rate:24000},transcription:{model:env.OPENAI_TRANSCRIPTION_MODEL||'gpt-live-transcribe'},turn_detection:null}}}})));
-        provider.on('message',raw=>{try{const e=JSON.parse(raw.toString());if(e.type==='session.updated'){ready=true;send({type:'ready'});}else if(e.type==='conversation.item.input_audio_transcription.delta')send({type:'partial',id:e.item_id,text:e.delta});else if(e.type==='conversation.item.input_audio_transcription.completed')send({type:'final',id:e.item_id,text:e.transcript});else if(e.type==='error'&&e.error?.code==='invalid_api_key')fail('Your OpenAI API key was rejected. Check it in Preferences');else if(e.type==='error'||e.type==='conversation.item.input_audio_transcription.failed')fail('Transcription provider failed');}catch{fail('Invalid provider response');}});
+        // OpenAI decides when a turn ends (server_vad): quiet or noisy calls are heard, and silence is never transcribed.
+        // gpt-live-transcribe refuses turn detection; gpt-4o-mini-transcribe measured best (npm run test:hearing).
+        provider.on('open',()=>provider?.send(JSON.stringify({type:'session.update',session:{type:'transcription',audio:{input:{format:{type:'audio/pcm',rate:24000},transcription:{model:'gpt-4o-mini-transcribe'},turn_detection:{type:'server_vad',silence_duration_ms:silenceMs,prefix_padding_ms:300},noise_reduction:{type:'far_field'}}}}})));
+        provider.on('message',raw=>{try{const e=JSON.parse(raw.toString());if(e.type==='session.updated'){ready=true;send({type:'ready'});}else if(e.type==='input_audio_buffer.speech_started')send({type:'speaking'});else if(e.type==='input_audio_buffer.speech_stopped')send({type:'quiet',id:e.item_id,ago:Math.max(0,heardMs-Number(e.audio_end_ms??heardMs)+silenceMs)});else if(e.type==='conversation.item.input_audio_transcription.delta')send({type:'partial',id:e.item_id,text:e.delta});else if(e.type==='conversation.item.input_audio_transcription.completed')send({type:'final',id:e.item_id,text:e.transcript});else if(e.type==='error'&&e.error?.code==='invalid_api_key')fail('Your OpenAI API key was rejected. Check it in Preferences');else if(e.type==='error'||e.type==='conversation.item.input_audio_transcription.failed')fail('Transcription provider failed');}catch{fail('Invalid provider response');}});
         provider.on('error',()=>fail('Could not connect to transcription provider'));provider.on('close',()=>{if(socket.readyState===WebSocket.OPEN)fail('Transcription connection closed');});
       }else{
         if(message.type!=='audio'||!ready)throw new HttpError(400,'Wait for ready before sending PCM audio');
@@ -258,7 +262,7 @@ wss.on('connection',(socket,req)=>{
         const bytes=Buffer.from(data,'base64');if(bytes.length%2!==0||bytes.length>48000)throw new HttpError(400,'PCM audio must contain at most one second of 24kHz mono PCM16');
         budget.consume(bytes.length);
         rate(`audio:${uid}`,2000);
-        if(!demo){if(provider?.bufferedAmount!>256000)throw new HttpError(429,'Audio connection congested');provider?.send(JSON.stringify({type:'input_audio_buffer.append',audio:data}));const turn=turns.append(bytes);if(turn)provider?.send(JSON.stringify({type:`input_audio_buffer.${turn}`}));}
+        if(!demo){if(provider?.bufferedAmount!>256000)throw new HttpError(429,'Audio connection congested');provider?.send(JSON.stringify({type:'input_audio_buffer.append',audio:data}));heardMs+=bytes.length/48;}
       }
     }catch(e){fail(e instanceof HttpError?e.message:'Invalid transcription message');}
   });

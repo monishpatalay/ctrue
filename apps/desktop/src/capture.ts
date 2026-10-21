@@ -10,7 +10,7 @@ export async function acquireScreen(source?: Source): Promise<MediaStream> {
   if (window.ctrue && source) await window.ctrue.selectSource(source.id);
   return navigator.mediaDevices.getDisplayMedia({ video: true, audio: { channelCount: 1, sampleRate: 24000, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
 }
-export async function startAudio(options: { stream: MediaStream; micId?: string; api: string; accessToken(): string; sessionId: string; openaiKey?: string; signal?: AbortSignal; onText(type: string, id: string, text: string): void; onLevel(level: number): void; onError(error: string): void; onReady(): void; onReconnecting?(): void; onListening?(): void }): Promise<Capture> {
+export async function startAudio(options: { stream: MediaStream; micId?: string; api: string; accessToken(): string; sessionId: string; openaiKey?: string; signal?: AbortSignal; onText(type: string, id: string, text: string): void; onLevel(level: number): void; onError(error: string): void; onReady(): void; onReconnecting?(): void; onListening?(): void; onSpeech?(speaking: boolean, stoppedAt?: number): void }): Promise<Capture> {
   const { stream } = options;
   const streams = [stream];
   let context: AudioContext | null = null;
@@ -54,10 +54,13 @@ export async function startAudio(options: { stream: MediaStream; micId?: string;
       const timeout = setTimeout(() => { failure = 'Transcription connection timed out.'; ws.close(); }, 15000);
       ws.onopen = () => ws.send(JSON.stringify({ type: 'start', accessToken: options.accessToken(), sessionId: options.sessionId, ...(options.openaiKey ? { openaiKey: options.openaiKey } : {}) }));
       ws.onmessage = event => {
-        let value: { type?: string; id?: unknown; text?: unknown; error?: unknown };
+        let value: { type?: string; id?: unknown; text?: unknown; error?: unknown; ago?: unknown };
         try { value = JSON.parse(event.data); } catch { failure = 'Invalid transcription response.'; ws.close(); return; }
         if (value.type === 'ready') { ready = true; attempts = 0; clearTimeout(timeout); flush(ws); options.onReady(); resolve(); }
         else if (value.type === 'partial' || value.type === 'final') options.onText(value.type, String(value.id), String(value.text));
+        // OpenAI's turn detection: someone started talking, or stopped `ago` ms before this message.
+        else if (value.type === 'speaking') options.onSpeech?.(true);
+        else if (value.type === 'quiet') options.onSpeech?.(false, Date.now() - Math.max(0, Number(value.ago) || 0));
         else if (value.type === 'error') failure = String(value.error || 'Transcription failed.');
       };
       ws.onerror = () => { failure ||= 'Transcription connection failed.'; };

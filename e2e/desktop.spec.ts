@@ -426,6 +426,33 @@ test('a pause in the middle of a question never shows a half answer', async ({ p
   expect(asked.map(a => a.question)).toEqual(['What is the difference between a process and a thread?']);
   expect((await popupAnswers(page)).some(answer => answer === 'Answer to: What is the difference between a process')).toBe(false);
 });
+// With OpenAI's speech detection the API reports when speech starts and stops; the text of a turn comes after.
+async function speech(page: Page, events: [number, object][]) {
+  const sentAt: Record<string, number> = {};
+  await transcription(page, [send => { send({ type: 'ready' }); for (const [at, value] of events) setTimeout(() => { sentAt[JSON.stringify(value)] = Date.now(); send(value); }, at); }]);
+  return sentAt;
+}
+test('the 1.8 s count from when the speaker stopped, not from when the text arrives', async ({ page }) => {
+  const askedAt: number[] = [];
+  await answers(page, body => { askedAt.push(Date.now()); return standard(body); });
+  const stop = { type: 'quiet', id: 'q1', ago: 0 };
+  const sentAt = await speech(page, [[200, { type: 'speaking' }], [800, stop], [2300, said('What is a hash map?', 'q1')]]);
+  await demo(page);
+  await emit(page, 'capture');
+  await expect(page.locator('.answer-text')).toContainText('Answer to: What is a hash map?', { timeout: 5_000 });
+  expect(askedAt).toHaveLength(1);
+  expect(askedAt[0] - sentAt[JSON.stringify(stop)]).toBeGreaterThanOrEqual(1_750);
+  expect(askedAt[0] - sentAt[JSON.stringify(stop)]).toBeLessThan(2_200);
+});
+test('speech starting again during the 1.8 s keeps waiting, even when its text is slow', async ({ page }) => {
+  const asked = await answers(page);
+  await speech(page, [[100, { type: 'speaking' }], [500, { type: 'quiet', id: 'a', ago: 0 }], [900, said('What is the difference between a process', 'a')],
+    [1400, { type: 'speaking' }], [2600, { type: 'quiet', id: 'b', ago: 0 }], [3100, said('and a thread?', 'b')]]);
+  await demo(page);
+  await emit(page, 'capture');
+  await expect(page.locator('.answer-text')).toContainText('Answer to: What is the difference between a process and a thread?', { timeout: 7_000 });
+  expect(asked.map(a => a.question)).toEqual(['What is the difference between a process and a thread?']);
+});
 test('chatter with no question gets no answer, and the last answer stays on screen', async ({ page }) => {
   const asked = await answers(page, body => body.question.includes('busy') ? [['token', { text: 'NO_QUESTION' }], ['done', {}]] : standard(body));
   await conversation(page, [[200, 'What is a queue?'], [2500, 'Anyway my day was really busy today.']]);

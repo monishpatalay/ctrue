@@ -99,6 +99,8 @@ export function App() {
   const sessionRef = useRef(session); sessionRef.current = session;
   const actions = useRef<Record<string, (payload?: unknown) => void>>({});
   const answeredId = useRef('');
+  // Whether someone is talking, and when they last stopped (0 until OpenAI reports it; demo audio never does).
+  const [voice, setVoice] = useState({ speaking: false, stoppedAt: 0 });
   const relisten = useRef(false);
   const inflight = useRef<Promise<unknown> | null>(null);
   const activeQuestion = useRef('');
@@ -250,7 +252,7 @@ export function App() {
     if (intent === 'audio' && capturePending.current) { await stopCapture(); return; }
     if (intent === 'audio' && captureRef.current) { await stopCapture(); return; }
     // No picker: capture the screen the pointer is on. The browser preview falls back to the browser's own prompt.
-    if (intent === 'audio') answeredId.current = transcript.at(-1)?.id || ''; // a new listen starts fresh
+    if (intent === 'audio') { answeredId.current = transcript.at(-1)?.id || ''; setVoice({ speaking: false, stoppedAt: 0 }); } // a new listen starts fresh
     return capture(intent, window.ctrue ? await window.ctrue.currentScreen() : undefined, compact);
   }
   // Audio starts live capture; a screenshot returns the image for the caller to attach or answer.
@@ -273,9 +275,10 @@ export function App() {
         const current = started.value;
         if (version !== captureVersion.current || sessionRef.current?.status !== 'active') { screen!.getTracks().forEach(track => track.stop()); return; }
         const active = await startAudio({ stream: screen!, micId: mic ? micId : undefined, api: config.api, accessToken: () => tokenRef.current!, sessionId: current.id, openaiKey: (await window.ctrue?.openaiKey()) || undefined, signal: controller.signal,
-          onReady: () => { if (version === captureVersion.current) setCaptureStatus('live'); }, onReconnecting: () => { if (version === captureVersion.current) setCaptureStatus('connecting'); }, onListening: () => { if (version === captureVersion.current) setCaptureStatus('live'); }, onLevel: value => { if (version === captureVersion.current) setLevel(value); },
+          onReady: () => { if (version === captureVersion.current) setCaptureStatus('live'); }, onReconnecting: () => { if (version === captureVersion.current) { setCaptureStatus('connecting'); setVoice({ speaking: false, stoppedAt: 0 }); } }, onListening: () => { if (version === captureVersion.current) setCaptureStatus('live'); }, onLevel: value => { if (version === captureVersion.current) setLevel(value); },
           // Pausing clears the error banner, so report the capture failure after it, or it vanishes unseen.
           onError: value => { if (version !== captureVersion.current) return; void (async () => { await stopCapture(); if (sessionRef.current?.status === 'active') await controlSession('pause'); setError(value); })(); },
+          onSpeech: (speaking, stoppedAt) => { if (version === captureVersion.current) setVoice(previous => speaking ? { ...previous, speaking } : { speaking, stoppedAt: stoppedAt ?? Date.now() }); },
           onText: (type, id, text) => {
             if (version === captureVersion.current) setTranscript(previous => updateTranscript(previous, type, id, text));
           }
@@ -404,7 +407,11 @@ export function App() {
   useEffect(() => {
     if (!automatic || generating || session?.status !== 'active') return;
     const heard = heardSince(transcript, answeredId.current);
-    if (!heard) return;
+    if (!heard || voice.speaking) return;
+    // The wait counts from when the speaker stopped, so the text arriving during it costs nothing; the text of the
+    // last turn must be in first (it arrives after the stop). Without turn events, it counts from the text.
+    const last = transcript.at(-1)!;
+    if (voice.stoppedAt && last.at < voice.stoppedAt) return;
     // Any new speech re-runs this effect and cancels the timer, so the answer waits for the whole question.
     const timer = setTimeout(() => {
       answeredId.current = heard.lastId;
@@ -414,9 +421,9 @@ export function App() {
       // Mid-walkthrough, a new problem starts a fresh walkthrough; anything else is a follow-up about the current step.
       if (mode === 'walkthrough' && stepsRef.current.length && !isNewProblem(heard.text)) explainStep(heard.text);
       else void generate(heard.text, undefined, mode, mode === 'walkthrough', mode !== 'walkthrough');
-    }, ANSWER_AFTER_QUIET_MS);
+    }, Math.max(0, (voice.stoppedAt || last.at) + ANSWER_AFTER_QUIET_MS - Date.now()));
     return () => clearTimeout(timer);
-  }, [automatic, transcript, generating, session?.status]);
+  }, [automatic, transcript, generating, session?.status, voice]);
   // Restart listening once the microphone is off, so capture picks up the new setting.
   useEffect(() => { if (relisten.current && !mic) { relisten.current = false; void run(async () => { await chooseSource('audio'); }); } }, [mic]);
   // Shortcuts drive the pop-up: listen and answer what is asked, or screenshot the problem and solve it at once.

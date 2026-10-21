@@ -126,7 +126,7 @@ export async function contract({ databaseUrl, authBase, token, origin, privateKe
     assert.deepEqual(await upload(who, 'resume.pdf', Buffer.from('%PDF-1.4 broken')), { status: 400, body: { error: 'Could not extract this document' } });
     assert.deepEqual(await upload(who, 'resume.pdf', Buffer.alloc(8_000_001)), { status: 400, body: { error: 'File exceeds upload limits' } });
   });
-  it('transcription relays partial and final text, and commits after speech then silence', async () => {
+  it('transcription relays when speech starts and stops, then its partial and final text', async () => {
     const who = await user(), socket = new WebSocket(`${base.replace('http', 'ws')}/transcription`), seen = [];
     socket.addEventListener('message', event => seen.push(JSON.parse(event.data)));
     await once(socket, 'open');
@@ -135,7 +135,10 @@ export async function contract({ databaseUrl, authBase, token, origin, privateKe
     assert(seen.some(m => m.type === 'ready'), JSON.stringify(seen));
     for (const chunk of [...Array(5).fill(SPEECH), ...Array(4).fill(SILENCE)]) socket.send(JSON.stringify({ type: 'audio', data: chunk.toString('base64') }));
     for (let i = 0; i < 50 && !seen.some(m => m.type === 'final'); i++) await wait(20);
-    assert.deepEqual(seen.filter(m => m.type !== 'ready').map(m => [m.type, m.text]), [['partial', 'What is '], ['final', 'What is a hash map?']]);
+    assert.deepEqual(seen.filter(m => m.type !== 'ready').map(m => [m.type, m.text]), [['speaking', undefined], ['quiet', undefined], ['partial', 'What is '], ['final', 'What is a hash map?']]);
+    // The speech ended 600 ms (the turn-detection silence) to 800 ms (all the silence sent) before OpenAI said so.
+    const { ago } = seen.find(m => m.type === 'quiet');
+    assert(ago >= 600 && ago <= 800, `ago ${ago}`);
     socket.close();
   });
   it('a key the transcription provider refuses is reported as a rejected key', async () => {

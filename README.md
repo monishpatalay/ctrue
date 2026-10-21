@@ -83,6 +83,7 @@ npm run test:database    # disposable PostgreSQL, then the API contract suite; n
 npm run test:e2e         # Playwright: website, desktop renderer, pop-up and the Electron app (macOS)
 npm run test:load        # live users against a 70 ms database round trip
 npm run test:ai          # real OpenAI calls with CTRUE_TEST_OPENAI_KEY (costs a few cents; macOS)
+npm run test:hearing     # how well Ctrue hears: spoken questions at 5 volumes/conditions, scored (same key; macOS)
 npm run verify:release   # a built macOS release, before publishing (add -- --published after)
 npm run probe:production # read-only checks of the live site and API
 ```

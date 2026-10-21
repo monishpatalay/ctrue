@@ -8,7 +8,7 @@ import { WebSocketServer } from 'ws';
 const STEP = { kind: 'step', phase: 'optimal', title: 'First piece', say: 'I start small.', code: 'def solve(nums):\n    return {nums}', action: 'add', replaces: null, why: null, breaks: null, details: null };
 
 export async function startMockOpenAI() {
-  const state = { answers: 0, open: 0, abandoned: 0, sockets: 0, appended: 0, commits: 0, clears: 0, realtime: 'ok' };
+  const state = { answers: 0, open: 0, abandoned: 0, sockets: 0, appended: 0, commits: 0, realtime: 'ok' };
   const server = createServer(async (req, res) => {
     if (req.method !== 'POST' || !req.url.endsWith('/responses')) { res.writeHead(404).end(); return; }
     let raw = '';
@@ -39,25 +39,34 @@ export async function startMockOpenAI() {
     else if (marker !== 'truncated') send('response.completed', { response: { status: 'completed' } });
     if (!closed) res.end();
   });
-  // Realtime transcription: session.update -> session.updated; each commit transcribes as "What is a hash map?".
+  // Realtime transcription with OpenAI's turn detection (server_vad), as the API asks for: loud audio starts a turn,
+  // silence_duration_ms of quiet ends it (speech_stopped), and its text follows as "What is a hash map?".
   const realtime = new WebSocketServer({ server, path: '/v1/realtime', verifyClient: (info, done) => done(!String(info.req.headers.authorization).includes('invalid'), 401) });
   realtime.on('connection', socket => {
     state.sockets++;
-    let item = 0;
+    let item = 0, quietFor = 0, heard = 0, speaking = false, silenceMs = 0;
     const send = value => socket.send(JSON.stringify(value));
     socket.on('message', raw => {
       const event = JSON.parse(raw.toString());
       if (event.type === 'session.update') {
+        const turns = event.session?.audio?.input?.turn_detection;
         if (state.realtime === 'error') send({ type: 'error', error: { code: 'server_error', message: 'mock failure' } });
         else if (state.realtime === 'close') socket.close();
-        else send({ type: 'session.updated' });
-      } else if (event.type === 'input_audio_buffer.append') state.appended += Buffer.from(event.audio, 'base64').length;
-      else if (event.type === 'input_audio_buffer.clear') state.clears++;
-      else if (event.type === 'input_audio_buffer.commit') {
-        state.commits++;
-        const item_id = `item_${++item}`;
-        send({ type: 'conversation.item.input_audio_transcription.delta', item_id, delta: 'What is ' });
-        send({ type: 'conversation.item.input_audio_transcription.completed', item_id, transcript: 'What is a hash map?' });
+        else if (turns?.type !== 'server_vad') send({ type: 'error', error: { code: 'invalid_value', message: 'mock expects server_vad' } });
+        else { silenceMs = turns.silence_duration_ms; send({ type: 'session.updated' }); }
+      } else if (event.type === 'input_audio_buffer.append') {
+        const pcm = Buffer.from(event.audio, 'base64'), ms = pcm.length / 48;
+        state.appended += pcm.length; heard += ms;
+        let loud = false;
+        for (let i = 0; i < pcm.length && !loud; i += 2) loud = Math.abs(pcm.readInt16LE(i)) > 500;
+        if (loud) { quietFor = 0; if (!speaking) { speaking = true; send({ type: 'input_audio_buffer.speech_started', item_id: `item_${item + 1}` }); } }
+        else if (speaking && (quietFor += ms) >= silenceMs) {
+          speaking = false; state.commits++;
+          const item_id = `item_${++item}`;
+          send({ type: 'input_audio_buffer.speech_stopped', item_id, audio_end_ms: heard }); // like OpenAI: includes the silence
+          send({ type: 'conversation.item.input_audio_transcription.delta', item_id, delta: 'What is ' });
+          send({ type: 'conversation.item.input_audio_transcription.completed', item_id, transcript: 'What is a hash map?' });
+        }
       }
     });
   });

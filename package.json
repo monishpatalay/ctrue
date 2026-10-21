@@ -23,7 +23,8 @@
     "verify:release": "node scripts/verify-release.mjs",
     "test:load": "node scripts/test-database.mjs --load",
     "probe:production": "node scripts/probe-production.mjs",
-    "test:ai": "node scripts/test-database.mjs --ai"
+    "test:ai": "node scripts/test-database.mjs --ai",
+    "test:hearing": "node scripts/test-database.mjs --hearing"
   },
   "engines": {
     "node": ">=22.19"
