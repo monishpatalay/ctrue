@@ -400,32 +400,37 @@ test('Clear in the pop-up empties the call in both windows and keeps listening',
 
 // Speech arriving at set times after listening starts.
 async function conversation(page: Page, lines: [number, string][]) {
-  await transcription(page, [send => { send({ type: 'ready' }); for (const [at, text] of lines) setTimeout(() => send(said(text)), at); }]);
+  const sentAt: number[] = [];
+  await transcription(page, [send => { send({ type: 'ready' }); for (const [at, text] of lines) setTimeout(() => { sentAt.push(Date.now()); send(said(text)); }, at); }]);
+  return sentAt;
 }
-test('a spoken question is answered right after the sentence is transcribed', async ({ page }) => {
+const popupAnswers = (page: Page) => page.evaluate(() => (window as unknown as { __ctrue: { popupStates: { answer: string }[] } }).__ctrue.popupStates.map(state => state.answer));
+test('an answer is prepared as soon as the sentence is heard, and shown the moment the speaker has been quiet for 1.8 s', async ({ page }) => {
   const askedAt: number[] = [];
   await answers(page, body => { askedAt.push(Date.now()); return standard(body); });
-  await conversation(page, [[300, 'What is a hash map?']]);
+  const sentAt = await conversation(page, [[300, 'What is a hash map?']]);
   await demo(page);
   await emit(page, 'capture');
   await expect(page.locator('.transcript-final')).toHaveText(/What is a hash map\?/);
-  const heardAt = Date.now();
-  await expect(page.locator('.answer-text')).toContainText('Answer to: What is a hash map?', { timeout: 3_000 });
+  const heardAt = sentAt[0];
+  await expect.poll(() => askedAt.length, { timeout: 1_000 }).toBe(1);
   expect(askedAt[0] - heardAt).toBeLessThan(700);
+  await page.waitForTimeout(1_200);
+  await expect(page.locator('.answer-text')).toHaveCount(0);
+  expect((await lastPopupState(page))?.status).toBe('listening');
+  await expect(page.locator('.answer-text')).toContainText('Answer to: What is a hash map?', { timeout: 1_500 });
+  const shownAt = Date.now();
+  expect(shownAt - heardAt).toBeGreaterThanOrEqual(1_700);
+  expect(shownAt - heardAt).toBeLessThan(2_400);
 });
-test('when the speaker keeps going, the answer starts over with the whole question', async ({ page }) => {
-  const asked: Asked[] = [];
-  await page.route(`${API}/answers`, async route => {
-    if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: CORS });
-    const body = route.request().postDataJSON() as Asked; asked.push(body);
-    if (asked.length === 1) await new Promise(resolve => setTimeout(resolve, 2500));
-    await route.fulfill({ status: 200, headers: { ...CORS, 'content-type': 'text/event-stream' }, body: `event: token\ndata: ${JSON.stringify({ text: `Answer to: ${body.question}` })}\n\nevent: done\ndata: {}\n\n` }).catch(() => {});
-  });
+test('a pause in the middle of a question never shows a half answer', async ({ page }) => {
+  const asked = await answers(page);
   await conversation(page, [[200, 'What is the difference between a process'], [1200, 'and a thread?']]);
   await demo(page);
   await emit(page, 'capture');
-  await expect(page.locator('.answer-text')).toContainText('Answer to: What is the difference between a process and a thread?', { timeout: 8_000 });
-  expect(asked.map(a => a.question)).toEqual(['What is the difference between a process', 'What is the difference between a process and a thread?']);
+  await expect(page.locator('.answer-text')).toContainText('Answer to: What is the difference between a process and a thread?', { timeout: 6_000 });
+  expect(asked.at(-1)?.question).toBe('What is the difference between a process and a thread?');
+  expect((await popupAnswers(page)).some(answer => answer === 'Answer to: What is the difference between a process')).toBe(false);
 });
 test('chatter with no question gets no answer, and the last answer stays on screen', async ({ page }) => {
   const asked = await answers(page, body => body.question.includes('busy') ? [['token', { text: 'NO_QUESTION' }], ['done', {}]] : standard(body));
