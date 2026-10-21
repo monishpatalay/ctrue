@@ -380,3 +380,20 @@ test('⌘L shows Listening at once and keeps what is said while the connection i
   await expect.poll(() => audio.filter(at => readyAt && at - readyAt < 500).length, { timeout: 5000 }).toBeGreaterThanOrEqual(7);
   expect(audio.every(at => at >= readyAt)).toBe(true);
 });
+
+test('Clear in the pop-up empties the call in both windows and keeps listening', async ({ page }) => {
+  const asked = await answers(page);
+  await transcription(page, [send => { send({ type: 'ready' }); send(said('What is a queue?')); }]);
+  await demo(page);
+  await emit(page, 'collect');
+  await expect.poll(async () => (await lastPopupState(page))?.shots).toBe(1);
+  await emit(page, 'capture');
+  await expect(page.locator('.answer-text')).toContainText('Answer to: What is a queue?', { timeout: 8_000 });
+  await emit(page, 'clear-context');
+  await expect(page.locator('.transcript-final')).toHaveCount(0);
+  await expect(page.locator('.answer-text')).toHaveCount(0);
+  await expect(page.locator('#question')).toHaveValue('');
+  await expect.poll(async () => { const state = await lastPopupState(page); return [state?.answer, state?.heard, state?.shots, (state?.history as unknown[])?.length]; }).toEqual(['', '', 0, 0]);
+  await expect(page.locator('.pill.live')).toHaveText('● Listening');
+  expect(asked).toHaveLength(1);
+});

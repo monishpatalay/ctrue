@@ -171,3 +171,10 @@ test('the pop-up shows new shortcuts as soon as they are saved (improvement 8)',
   await main.evaluate(() => (window as unknown as { ctrue: { shortcuts(v: unknown): Promise<string[]> } }).ctrue.shortcuts({ capture: 'Alt+Shift+K' }));
   await expect(panel.locator('.popup-hint')).toContainText(process.platform === 'darwin' ? '⌥⇧K listen' : 'Alt+Shift+K listen');
 });
+
+test('Clear in the pop-up reaches the main window', async () => {
+  await main.locator('#question').fill('Something from the last call');
+  const panel = await popup();
+  await panel.evaluate(() => (window as unknown as { ctrue: { popupClear(): Promise<void> } }).ctrue.popupClear());
+  await expect(main.locator('#question')).toHaveValue('');
+});

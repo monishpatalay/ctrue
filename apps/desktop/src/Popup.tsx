@@ -40,6 +40,7 @@ export function Popup() {
       <span className={`popup-status ${state.status}`}>{labels[state.status]}</span>
       <span className="popup-hint">{hint}</span>
       {state.answer && <button type="button" onClick={() => void navigator.clipboard.writeText(state.answer).then(() => setCopied(true)).catch(() => {})}>{copied ? 'Copied' : 'Copy'}</button>}
+      {(state.answer || state.question || state.heard || state.shots > 0 || state.history.length > 0 || state.walk) && <button type="button" title="Clear this call's answers, transcript and screenshots" onClick={() => void window.ctrue?.popupClear()}>Clear</button>}
       <button type="button" aria-label="Hide pop-up" onClick={() => void window.ctrue?.popupHide()}>×</button>
     </header>
     <div className="popup-body" ref={body} aria-live="polite">

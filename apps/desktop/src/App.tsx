@@ -439,6 +439,9 @@ export function App() {
     }),
     // Mid-walkthrough, what was typed or just said is a question about the current step unless it names a new problem
     // (as with spoken and pop-up follow-ups); the original problem text restarts the walkthrough.
+    // From the pop-up's Clear: forget the whole call (answers, transcript, screenshots), stop any answer in progress,
+    // and keep listening if it is on.
+    'clear-context': () => { abortRef.current?.abort(); clearContext(); },
     answer: () => {
       const said = question.trim() || transcript.filter(t => t.final).slice(-2).map(t => t.text).join(' ');
       if (mode === 'walkthrough' && stepsRef.current.length && said && said !== walkProblem.current.text && !isNewProblem(said)) actions.current['follow-up'](said);

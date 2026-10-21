@@ -82,3 +82,13 @@ test('on Windows the pop-up hint names the keys', async ({ page }) => {
   await page.reload(); // the same URL with a hash would not load a new page, so the Windows stub would never run
   await expect(page.getByText('Ctrl+L listen · Ctrl+J answer screen · Ctrl+Shift+J add screen · Ctrl+H hide')).toBeVisible();
 });
+
+test('Clear sits beside Copy and clears the whole conversation; nothing to clear, no button', async ({ page }) => {
+  await expect(page.getByRole('button', { name: 'Clear' })).toHaveCount(0);
+  await show(page, { question: 'Second?', answer: 'Second answer', history: [{ question: 'First?', text: 'First answer' }] });
+  await expect(page.locator('.popup-bar button')).toHaveText(['Copy', 'Clear', '×']);
+  await page.getByRole('button', { name: 'Clear' }).click();
+  expect(await calls(page, 'popupClear')).toHaveLength(1);
+  await show(page, { status: 'listening', heard: 'Still talking' });
+  await expect(page.getByRole('button', { name: 'Clear' })).toBeVisible();
+});

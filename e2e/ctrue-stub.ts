@@ -43,7 +43,7 @@ export async function installCtrue(page: Page, options: StubOptions = {}) {
       selectSource: record('selectSource'), protect: record('protect'), recording: record('recording'),
       shortcuts: async (value: unknown) => { calls.push({ name: 'shortcuts', args: [value] }); return []; },
       popupState: async (value: unknown) => { popupStates.push(value); if (JSON.stringify(value).length > 200000) throw fail('popup-state', 'Invalid pop-up state.'); },
-      popupStep: record('popupStep'), popupAsk: record('popupAsk'), popupHide: record('popupHide'), popupMicOff: record('popupMicOff'),
+      popupStep: record('popupStep'), popupAsk: record('popupAsk'), popupHide: record('popupHide'), popupClear: record('popupClear'), popupMicOff: record('popupMicOff'),
       openaiKey: async () => openaiKey,
       setOpenaiKey: async (value: string | null) => {
         if (value !== null && !/^sk-[A-Za-z0-9_-]{20,300}$/.test(value.trim())) throw fail('set-openai-key', 'That does not look like an OpenAI API key (it should start with sk-).');
