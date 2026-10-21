@@ -21,9 +21,9 @@ async function screenshot(text) {
   await browser.close();
   return `data:image/png;base64,${png.toString('base64')}`;
 }
-function spoken(sentence) {
+function spoken(sentence, voice) {
   const file = join(tmpdir(), `ctrue-ai-${process.pid}.wav`);
-  execFileSync('say', ['-o', file, '--data-format=LEI16@24000', sentence]);
+  execFileSync('say', [...(voice ? ['-v', voice] : []), '-o', file, '--data-format=LEI16@24000', sentence]);
   const wav = readFileSync(file);
   let offset = 12;
   while (wav.toString('ascii', offset, offset + 4) !== 'data') offset += 8 + wav.readUInt32LE(offset + 4);
@@ -69,6 +69,13 @@ export async function realAI({ databaseUrl, authBase, token }) {
     const words = injected.text.toLowerCase().split(/\W+/), count = list => words.filter(w => list.includes(w)).length;
     assert(count(['the', 'is', 'and', 'to', 'a']) > count(['le', 'la', 'les', 'est', 'et', 'une', 'pour']), 'answered in French');
     assert.doesNotMatch(injected.text, /untrusted data|You are Ctrue/i, 'revealed its instructions');
+    // Live speech with chatter around the question: the question is found; chatter alone gets NO_QUESTION.
+    const mixed = await ask('Spoken: chatter, Hindi words and a question', { question: 'Haan bhai, kal milte hain. Anyway my day was super busy with meetings. So, can you explain what a hash map is?', mode: 'technical', spoken: true });
+    assert.match(mixed.text, /hash/i); assert.doesNotMatch(mixed.text, /NO_QUESTION|meeting/i);
+    for (const [title, words] of [['Spoken: chatter only', 'My day was really busy, I had three meetings and then lunch with my cousin.'], ['Spoken: Hinglish chatter', 'Haan, main thodi der mein aata hoon. Okay, see you later.'], ['Spoken: a remark to someone else', 'Can you pass me the charger? Thanks.']]) {
+      const chatter = await ask(title, { question: words, mode: 'technical', spoken: true });
+      assert.equal(chatter.text.trim(), 'NO_QUESTION', `${title}: ${chatter.text.slice(0, 120)}`);
+    }
     const walk = await ask('Walkthrough (Python)', { question: 'Two sum: return indices of the two numbers in nums that add up to target.', mode: 'walkthrough', topic: 'coding', language: 'Python' });
     assert(walk.steps.length >= 3 && walk.steps.some(step => step.kind === 'final' && step.code), `walkthrough had ${walk.steps.length} steps and no final code`);
 
@@ -79,22 +86,26 @@ export async function realAI({ databaseUrl, authBase, token }) {
     socket.send(JSON.stringify({ type: 'start', accessToken: bearer, sessionId: session.id, openaiKey: key }));
     for (let i = 0; i < 100 && !seen.some(m => m.type === 'ready' || m.type === 'error'); i++) await wait(100);
     assert(seen.some(m => m.type === 'ready'), JSON.stringify(seen));
-    const speech = spoken('What is a hash map, and when would you use one?'), chunk = 9600, silent = Buffer.alloc(chunk);
-    const audio = [...Array.from({ length: Math.ceil(speech.length / chunk) }, (_, i) => speech.subarray(i * chunk, (i + 1) * chunk)), ...Array(90).fill(silent)];
+    // Hindi first (it must come back as Hindi, not translated into English), then the English question, then silence.
+    const hindi = spoken('तुम आज शाम को क्या कर रहे हो? मैं बाज़ार जा रहा हूँ।', 'Lekha'), speech = spoken('What is a hash map, and when would you use one?'), chunk = 9600, silent = Buffer.alloc(chunk);
+    const parts = buffer => Array.from({ length: Math.ceil(buffer.length / chunk) }, (_, i) => buffer.subarray(i * chunk, (i + 1) * chunk));
+    const audio = [...parts(hindi), ...Array(6).fill(silent), ...parts(speech), ...Array(90).fill(silent)];
     let spokenAt = 0;
     for (const [index, part] of audio.entries()) {
       socket.send(JSON.stringify({ type: 'audio', data: Buffer.from(part.length % 2 ? part.subarray(0, -1) : part).toString('base64') }));
-      if (index === Math.ceil(speech.length / chunk) - 1) spokenAt = performance.now();
+      if (index === audio.length - 91) spokenAt = performance.now();
       await wait(200);
     }
     const finals = seen.filter(m => m.type === 'final');
-    const latency = finals[0] ? Math.round(finals[0].at - spokenAt) : NaN;
+    const last = finals.at(-1), latency = last ? Math.round(last.at - spokenAt) : NaN;
     report.push('## Transcription', '', `_final ${latency} ms after the speech ended_`, '', ...finals.map(f => `- ${f.text}`), '');
     console.log(`  Transcription: final ${latency} ms after the speech ended; ${finals.length} final(s)`);
     socket.close();
     assert(!seen.some(m => m.type === 'error'), JSON.stringify(seen.filter(m => m.type === 'error')));
-    assert.match(finals[0]?.text || '', /hash ?map/i);
-    assert.equal(finals.length, 1, `18 s of silence was transcribed: ${JSON.stringify(finals.slice(1))}`);
+    // The desktop keeps only English (isEnglish in apps/desktop/src/api.ts): the Hindi turn must not read as English.
+    const english = finals.filter(f => !/[^\u0000-\u024F\u2000-\u206F\u20A0-\u20CF]/.test(f.text));
+    assert.equal(english.length, 1, `expected only the English question to survive: ${JSON.stringify(finals.map(f => f.text))}`);
+    assert.match(english[0].text, /hash ?map/i);
   } catch (error) {
     console.log(`  API log:\n${api.logs().trim().split('\n').slice(-15).map(line => `    ${line}`).join('\n')}`);
     throw error;

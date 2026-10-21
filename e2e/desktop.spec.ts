@@ -397,3 +397,55 @@ test('Clear in the pop-up empties the call in both windows and keeps listening',
   await expect(page.locator('.pill.live')).toHaveText('● Listening');
   expect(asked).toHaveLength(1);
 });
+
+// Speech arriving at set times after listening starts.
+async function conversation(page: Page, lines: [number, string][]) {
+  await transcription(page, [send => { send({ type: 'ready' }); for (const [at, text] of lines) setTimeout(() => send(said(text)), at); }]);
+}
+test('a spoken question is answered right after the sentence is transcribed', async ({ page }) => {
+  const askedAt: number[] = [];
+  await answers(page, body => { askedAt.push(Date.now()); return standard(body); });
+  await conversation(page, [[300, 'What is a hash map?']]);
+  await demo(page);
+  await emit(page, 'capture');
+  await expect(page.locator('.transcript-final')).toHaveText(/What is a hash map\?/);
+  const heardAt = Date.now();
+  await expect(page.locator('.answer-text')).toContainText('Answer to: What is a hash map?', { timeout: 3_000 });
+  expect(askedAt[0] - heardAt).toBeLessThan(700);
+});
+test('when the speaker keeps going, the answer starts over with the whole question', async ({ page }) => {
+  const asked: Asked[] = [];
+  await page.route(`${API}/answers`, async route => {
+    if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: CORS });
+    const body = route.request().postDataJSON() as Asked; asked.push(body);
+    if (asked.length === 1) await new Promise(resolve => setTimeout(resolve, 2500));
+    await route.fulfill({ status: 200, headers: { ...CORS, 'content-type': 'text/event-stream' }, body: `event: token\ndata: ${JSON.stringify({ text: `Answer to: ${body.question}` })}\n\nevent: done\ndata: {}\n\n` }).catch(() => {});
+  });
+  await conversation(page, [[200, 'What is the difference between a process'], [1200, 'and a thread?']]);
+  await demo(page);
+  await emit(page, 'capture');
+  await expect(page.locator('.answer-text')).toContainText('Answer to: What is the difference between a process and a thread?', { timeout: 8_000 });
+  expect(asked.map(a => a.question)).toEqual(['What is the difference between a process', 'What is the difference between a process and a thread?']);
+});
+test('chatter with no question gets no answer, and the last answer stays on screen', async ({ page }) => {
+  const asked = await answers(page, body => body.question.includes('busy') ? [['token', { text: 'NO_QUESTION' }], ['done', {}]] : standard(body));
+  await conversation(page, [[200, 'What is a queue?'], [2500, 'Anyway my day was really busy today.']]);
+  await demo(page);
+  await emit(page, 'capture');
+  await expect(page.locator('.answer-text')).toContainText('Answer to: What is a queue?', { timeout: 5_000 });
+  await expect.poll(() => asked.length, { timeout: 6_000 }).toBe(2);
+  expect(asked.every(a => (a as Asked & { spoken?: boolean }).spoken === true)).toBe(true);
+  await page.waitForTimeout(500);
+  await expect(page.locator('.answer-text')).toContainText('Answer to: What is a queue?');
+  await expect(page.getByText('NO_QUESTION')).toHaveCount(0);
+  expect((await lastPopupState(page))?.answer).toBe('Answer to: What is a queue?');
+});
+test('speech in Hindi is dropped: never shown, never answered', async ({ page }) => {
+  const asked = await answers(page);
+  await conversation(page, [[200, 'तुम आज क्या कर रहे हो?'], [600, 'What is a stack?']]);
+  await demo(page);
+  await emit(page, 'capture');
+  await expect(page.locator('.answer-text')).toContainText('Answer to: What is a stack?', { timeout: 5_000 });
+  await expect(page.locator('.transcript-final')).toHaveCount(1);
+  expect(asked.map(a => a.question)).toEqual(['What is a stack?']);
+});

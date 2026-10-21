@@ -41,8 +41,6 @@ services:
         value: gpt-4.1-mini
       - key: OPENAI_TRANSCRIPTION_MODEL
         value: gpt-live-transcribe
-      - key: OPENAI_TRANSCRIPTION_LANGUAGE
-        value: en
       - key: AUDIO_VAD_THRESHOLD
         value: "0.01"
       - key: AUDIO_SILENCE_MS

@@ -42,7 +42,7 @@ const origins=new Set((env.ALLOWED_ORIGINS||'http://localhost:3000,http://127.0.
 // The packaged Electron app sends Origin "null" on fetch and "file://" on WebSocket; bearer authentication still
 // applies to every protected operation.
 function originAllowed(origin:string|undefined) { return !origin || origin==='null' || origin==='file://' || origins.has(origin); }
-const trial=Number(env.TRIAL_SECONDS||600), transcriptionLanguage=env.OPENAI_TRANSCRIPTION_LANGUAGE||'en';
+const trial=Number(env.TRIAL_SECONDS||600);
 if(!Number.isInteger(trial)||trial<0||trial>36000) throw new Error('Invalid TRIAL_SECONDS');
 const vadThreshold=Number(env.AUDIO_VAD_THRESHOLD||0.01),silenceMs=Number(env.AUDIO_SILENCE_MS||600);
 if(!Number.isFinite(vadThreshold)||vadThreshold<=0||vadThreshold>=1||!Number.isFinite(silenceMs)||silenceMs<200||silenceMs>3000)throw new Error('Invalid audio VAD calibration');
@@ -180,7 +180,7 @@ app.post('/answers',async(req,res,next)=>{
   try {
     rate(`answers:${u.id}`,12);const id=uuid(req.body.sessionId),question=string(req.body.question,'question',16000),mode=string(req.body.mode,'mode',20);
     if(!['technical','coding','behavioral','system-design','walkthrough'].includes(mode))throw new HttpError(400,'Invalid answer mode');
-    const walk=mode==='walkthrough',topic=req.body.topic==='system-design'?'system-design':'coding',language=walk&&topic==='coding'?string(req.body.language,'language',20):'';
+    const spoken=req.body.spoken===true,walk=mode==='walkthrough',topic=req.body.topic==='system-design'?'system-design':'coding',language=walk&&topic==='coding'?string(req.body.language,'language',20):'';
     if(walk&&topic==='coding'&&!(LANGUAGES as readonly string[]).includes(language))throw new HttpError(400,'Unsupported language');
     // One screenshot (image) or several consecutive parts of the same page (images), at most four.
     const supplied:unknown[]=Array.isArray(req.body.images)?req.body.images:req.body.image===undefined?[]:[req.body.image];
@@ -203,7 +203,7 @@ app.post('/answers',async(req,res,next)=>{
     else if(demo)send('token',{text:`[DEMO — no AI request made] Practice ${mode} response. Question: ${question.slice(0,250)}. ${mode==='behavioral'?'Use your verified facts to describe Situation, Task, Action, and Result.':'Explain your approach, then cover tradeoffs and edge cases.'}`});
     else {
       const scanner=new StepScanner();
-      const stream=await new OpenAI({apiKey:key}).responses.create({model:env.OPENAI_MODEL||'gpt-4.1-mini',instructions:walk?walkPrompt(topic,language):prompt(mode,facts),...(walk?{text:{format:{type:'json_schema' as const,name:'walkthrough',schema:WALK_SCHEMA,strict:true}}}:{}),input:[{role:'user',content:[{type:'input_text',text:`Recent context:\n${context}\nQuestion:\n${question}${pictures.length>1?`\n\nThe ${pictures.length} screenshots are consecutive parts of the same page, in order; read them together.`:''}\n\nReply in English only, even if the text above is in another language.`},...pictures.map(url=>({type:'input_image' as const,image_url:url,detail:'auto' as const}))]}],stream:true,max_output_tokens:walk?8000:2500,store:false},{signal:abort.signal});
+      const stream=await new OpenAI({apiKey:key}).responses.create({model:env.OPENAI_MODEL||'gpt-4.1-mini',instructions:walk?walkPrompt(topic,language):prompt(mode,facts,spoken),...(walk?{text:{format:{type:'json_schema' as const,name:'walkthrough',schema:WALK_SCHEMA,strict:true}}}:{}),input:[{role:'user',content:[{type:'input_text',text:`Recent context:\n${context}\n${spoken?`Transcript of what was just said on the call (not necessarily a question):\n${question}\n\nIf nothing in this transcript asks the user a question or makes a request of them, reply with exactly NO_QUESTION and nothing else.`:`Question:\n${question}`}${pictures.length>1?`\n\nThe ${pictures.length} screenshots are consecutive parts of the same page, in order; read them together.`:''}\n\nReply in English only, even if the text above is in another language.`},...pictures.map(url=>({type:'input_image' as const,image_url:url,detail:'auto' as const}))]}],stream:true,max_output_tokens:walk?8000:2500,store:false},{signal:abort.signal});
       let completed=false;
       for await(const event of stream){if(event.type==='response.output_text.delta'){if(!walk)send('token',{text:event.delta});else for(const found of scanner.push(event.delta)){const step=toWalkStep(found);if(!step)throw new HttpError(502,'The AI returned a malformed step. Completed steps are kept; press Retry to continue.');send('step',step);}}else if(event.type==='response.completed')completed=true;
         // A length cut-off keeps what was written; anything else is reported with OpenAI's own reason.
@@ -247,7 +247,9 @@ wss.on('connection',(socket,req)=>{
         // OPENAI_REALTIME_URL points the relay at a local stand-in for tests, as OPENAI_BASE_URL does for answers.
         provider=new WebSocket(env.OPENAI_REALTIME_URL||'wss://api.openai.com/v1/realtime?intent=transcription',{headers:{Authorization:`Bearer ${key}`}});
         provider.on('unexpected-response',(_request,response)=>fail(response.statusCode===401?'Your OpenAI API key was rejected. Check it in Preferences':'Could not connect to transcription provider'));
-        provider.on('open',()=>provider?.send(JSON.stringify({type:'session.update',session:{type:'transcription',audio:{input:{format:{type:'audio/pcm',rate:24000},transcription:{model:env.OPENAI_TRANSCRIPTION_MODEL||'gpt-live-transcribe',language:transcriptionLanguage,...(transcriptionLanguage==='en'?{prompt:'The speakers use English. Write the transcript in English only.'}:{})},turn_detection:null}}}})));
+        // No forced language: forcing English made Hindi come back translated into English. Each language now comes back
+        // as itself, and the desktop drops anything that is not English.
+        provider.on('open',()=>provider?.send(JSON.stringify({type:'session.update',session:{type:'transcription',audio:{input:{format:{type:'audio/pcm',rate:24000},transcription:{model:env.OPENAI_TRANSCRIPTION_MODEL||'gpt-live-transcribe'},turn_detection:null}}}})));
         provider.on('message',raw=>{try{const e=JSON.parse(raw.toString());if(e.type==='session.updated'){ready=true;send({type:'ready'});}else if(e.type==='conversation.item.input_audio_transcription.delta')send({type:'partial',id:e.item_id,text:e.delta});else if(e.type==='conversation.item.input_audio_transcription.completed')send({type:'final',id:e.item_id,text:e.transcript});else if(e.type==='error'&&e.error?.code==='invalid_api_key')fail('Your OpenAI API key was rejected. Check it in Preferences');else if(e.type==='error'||e.type==='conversation.item.input_audio_transcription.failed')fail('Transcription provider failed');}catch{fail('Invalid provider response');}});
         provider.on('error',()=>fail('Could not connect to transcription provider'));provider.on('close',()=>{if(socket.readyState===WebSocket.OPEN)fail('Transcription connection closed');});
       }else{

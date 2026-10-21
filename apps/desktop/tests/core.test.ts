@@ -177,3 +177,9 @@ test('shortcuts read as symbols on macOS and as key names on Windows', () => {
   assert.equal(prettyShortcut('Alt+Shift+N', false), 'Alt+Shift+N');
   assert.equal(prettyShortcut('CommandOrControl+Enter', false), 'Ctrl+Enter');
 });
+
+test('speech in another script never shows, not even while it is still being spoken', () => {
+  const english = updateTranscript([], 'final', 'a', 'What is a queue?');
+  assert.deepEqual(updateTranscript(english, 'partial', 'b', 'तुम क्या'), english);
+  assert.equal(updateTranscript(updateTranscript(english, 'partial', 'c', 'And then '), 'partial', 'c', 'कुछ').length, 1);
+});

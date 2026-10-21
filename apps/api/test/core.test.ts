@@ -147,3 +147,8 @@ test('DOCX archives that are encrypted, use other compression or hold too many e
   assert.throws(()=>docxSize(archive(1,1)),/Invalid DOCX/);
   assert.throws(()=>docxSize(archive(1,0,12)),/Invalid DOCX/);
 });
+test('a spoken question is picked out of chatter and other languages, or answered with NO_QUESTION',()=>{
+  const spoken=prompt('technical','',true),typed=prompt('technical','');
+  assert.match(spoken,/small talk/);assert.match(spoken,/other languages/);assert.match(spoken,/exactly NO_QUESTION/);
+  assert.doesNotMatch(typed,/NO_QUESTION/);
+});

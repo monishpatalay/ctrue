@@ -36,6 +36,8 @@ export function updateTranscript(previous: Transcript[], type: string, id: strin
   const entry = previous.find(t => t.id === id);
   if (entry?.final && type === 'partial') return previous;
   const item = { id, text: type === 'partial' ? (entry?.text || '') + text : text, final: type === 'final', at: now };
+  // Speech in another script is dropped as soon as it shows, so it is never seen in "Hearing…" either.
+  if (!isEnglish(item.text)) return previous.filter(t => t.id !== id);
   return (entry ? previous.map(t => t.id === id ? item : t) : [...previous, item]).slice(-200);
 }
 // During a walkthrough, decides whether a spoken question is a new problem or a follow-up about the current one.
