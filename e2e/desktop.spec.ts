@@ -405,23 +405,17 @@ async function conversation(page: Page, lines: [number, string][]) {
   return sentAt;
 }
 const popupAnswers = (page: Page) => page.evaluate(() => (window as unknown as { __ctrue: { popupStates: { answer: string }[] } }).__ctrue.popupStates.map(state => state.answer));
-test('an answer is prepared as soon as the sentence is heard, and shown the moment the speaker has been quiet for 1.8 s', async ({ page }) => {
+test('Ctrue waits for 1.8 s of quiet after the speaker, then starts answering', async ({ page }) => {
   const askedAt: number[] = [];
   await answers(page, body => { askedAt.push(Date.now()); return standard(body); });
   const sentAt = await conversation(page, [[300, 'What is a hash map?']]);
   await demo(page);
   await emit(page, 'capture');
   await expect(page.locator('.transcript-final')).toHaveText(/What is a hash map\?/);
-  const heardAt = sentAt[0];
-  await expect.poll(() => askedAt.length, { timeout: 1_000 }).toBe(1);
-  expect(askedAt[0] - heardAt).toBeLessThan(700);
-  await page.waitForTimeout(1_200);
-  await expect(page.locator('.answer-text')).toHaveCount(0);
-  expect((await lastPopupState(page))?.status).toBe('listening');
-  await expect(page.locator('.answer-text')).toContainText('Answer to: What is a hash map?', { timeout: 1_500 });
-  const shownAt = Date.now();
-  expect(shownAt - heardAt).toBeGreaterThanOrEqual(1_700);
-  expect(shownAt - heardAt).toBeLessThan(2_400);
+  await expect(page.locator('.answer-text')).toContainText('Answer to: What is a hash map?', { timeout: 4_000 });
+  expect(askedAt).toHaveLength(1);
+  expect(askedAt[0] - sentAt[0]).toBeGreaterThanOrEqual(1_750);
+  expect(askedAt[0] - sentAt[0]).toBeLessThan(2_300);
 });
 test('a pause in the middle of a question never shows a half answer', async ({ page }) => {
   const asked = await answers(page);
@@ -429,7 +423,7 @@ test('a pause in the middle of a question never shows a half answer', async ({ p
   await demo(page);
   await emit(page, 'capture');
   await expect(page.locator('.answer-text')).toContainText('Answer to: What is the difference between a process and a thread?', { timeout: 6_000 });
-  expect(asked.at(-1)?.question).toBe('What is the difference between a process and a thread?');
+  expect(asked.map(a => a.question)).toEqual(['What is the difference between a process and a thread?']);
   expect((await popupAnswers(page)).some(answer => answer === 'Answer to: What is the difference between a process')).toBe(false);
 });
 test('chatter with no question gets no answer, and the last answer stays on screen', async ({ page }) => {
