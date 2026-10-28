@@ -20,6 +20,16 @@ test('shows the shortcut hint, the live status and what is being heard', async (
   await expect(page.getByText('What is a hash')).toBeVisible();
 });
 
+test('while listening, the pop-up says who is heard and that listening can stay on all call', async ({ page }) => {
+  await show(page, { status: 'listening' });
+  await expect(page.locator('.popup-status')).toHaveText('● Listening to them');
+  await expect(page.getByText('Only the other person is heard, not you, so leave this on for the whole call.')).toBeVisible();
+  // It stays visible once an answer is showing.
+  await show(page, { status: 'listening', question: 'What is MongoDB?', answer: 'A document database.' });
+  await expect(page.locator('.popup-status')).toHaveText('● Listening to them');
+  await show(page, { status: 'listening', mic: true });
+  await expect(page.locator('.popup-status')).toHaveText('● Listening to you both');
+});
 test('keeps earlier answers above the current one and copies the current answer', async ({ page }) => {
   await show(page, { question: 'Second?', answer: 'Second answer', history: [{ question: 'First?', text: 'First answer' }] });
   const texts = await page.locator('.popup-answer').allTextContents();

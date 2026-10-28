@@ -37,7 +37,8 @@ export function Popup() {
   }
   return <section className="popup" aria-label="Ctrue answer">
     <header className="popup-bar">
-      <span className={`popup-status ${state.status}`}>{labels[state.status]}</span>
+      {/* Says who is heard, so it is clear listening can stay on: without the microphone, Ctrue never hears the user. */}
+      <span className={`popup-status ${state.status}`}>{state.status === 'listening' ? `● Listening to ${state.mic ? 'you both' : 'them'}` : labels[state.status]}</span>
       <span className="popup-hint">{hint}</span>
       {state.answer && <button type="button" onClick={() => void navigator.clipboard.writeText(state.answer).then(() => setCopied(true)).catch(() => {})}>{copied ? 'Copied' : 'Copy'}</button>}
       {(state.answer || state.question || state.heard || state.shots > 0 || state.history.length > 0 || state.walk) && <button type="button" title="Clear this call's answers, transcript and screenshots" onClick={() => void window.ctrue?.popupClear()}>Clear</button>}
@@ -59,7 +60,7 @@ export function Popup() {
         {walk.explanation && <div className="popup-answer markdown"><Markdown text={walk.explanation} /></div>}
       </article> : state.question && <p className="popup-question">{state.question}</p>}
       {/* During a walkthrough the answer is a step explanation, shown above with its own step only. */}
-      {walk ? null : state.answer ? <div className="popup-answer markdown"><Markdown text={state.answer} /></div> : !state.error && !state.heard && <p className="popup-empty">{state.status === 'listening' ? 'Listening to the call. The answer appears here when a question is asked.' : state.status === 'thinking' ? 'Working on it…' : 'Listen to the call or take a screenshot to get an answer here.'}</p>}
+      {walk ? null : state.answer ? <div className="popup-answer markdown"><Markdown text={state.answer} /></div> : !state.error && !state.heard && <p className="popup-empty">{state.status === 'listening' ? state.mic ? 'Listening to the call. The answer appears here when a question is asked.' : 'Only the other person is heard, not you, so leave this on for the whole call. Each question is answered here about 2 seconds after they finish asking.' : state.status === 'thinking' ? 'Working on it…' : 'Listen to the call or take a screenshot to get an answer here.'}</p>}
       {!walk && state.heard && <p className="popup-heard" aria-live="off"><span>Hearing…</span> {state.heard}</p>}
     </div>
     {walk && <nav className="popup-walk-nav" aria-label="Walkthrough steps"><button type="button" disabled={walk.index === 0} onClick={() => void window.ctrue?.popupStep(-1)}>← Prev</button><button type="button" disabled={walk.index >= walk.total - 1} onClick={() => void window.ctrue?.popupStep(1)}>Next →</button></nav>}
