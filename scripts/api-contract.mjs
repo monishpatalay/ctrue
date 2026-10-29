@@ -23,7 +23,7 @@ export async function launch(port, env) {
   const stop = async () => { api.kill('SIGTERM'); if (api.exitCode === null) await once(api, 'exit'); };
   for (let i = 0; i < 50; i++) {
     if (api.exitCode !== null) throw new Error(`API exited: ${logs}`);
-    if (await fetch(`http://127.0.0.1:${port}/health`).then(r => r.ok, () => false)) return { stop, logs: () => logs };
+    if (await fetch(`http://127.0.0.1:${port}/health`).then(r => r.ok, () => false)) return { stop, logs: () => logs, pid: api.pid };
     await wait(100);
   }
   await stop();
@@ -32,7 +32,8 @@ export async function launch(port, env) {
 
 export async function contract({ databaseUrl, authBase, token, origin, privateKey }) {
   const mock = await startMockOpenAI();
-  const settings = { ...mock.env, TRUST_PROXY: '1', DATABASE_URL: databaseUrl, NEON_AUTH_BASE_URL: authBase };
+  // A server key is set, as in production: only owner accounts may use it, so cases without a user key must still fail.
+  const settings = { ...mock.env, TRUST_PROXY: '1', DATABASE_URL: databaseUrl, NEON_AUTH_BASE_URL: authBase, OPENAI_API_KEY: 'sk-server-owner-key-for-ctrue-contract-0000' };
   const call = async (path, bearer, body, { method = body === undefined ? 'GET' : 'POST', headers = {} } = {}) => {
     const response = await fetch(base + path, { method, signal: AbortSignal.timeout(20000), body: body === undefined ? undefined : JSON.stringify(body),
       headers: { 'Content-Type': 'application/json', ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}), ...headers } });
@@ -114,6 +115,23 @@ export async function contract({ databaseUrl, authBase, token, origin, privateKe
     assert.match(text, /event: token/);
     assert.match(text, /event: error\ndata: \{"error":"[^"]+"\}\n\n$/, `stream ended without an error event: ...${text.slice(-200)}`);
   });
+  it('a huge PDF (1,500 pages, under the size limit) does not freeze the API for other users (API-8)', async () => {
+    const { chromium } = await import('@playwright/test');
+    const browser = await chromium.launch(), page = await browser.newPage();
+    await page.setContent(`<div style="page-break-after:always;font:9px sans-serif">${'Experienced engineer building distributed systems. '.repeat(60)}</div>`.repeat(1500));
+    const pdf = await page.pdf({ format: 'A4' });
+    await browser.close();
+    const who = await user(), other = await user();
+    const started = performance.now(), importing = upload(who, 'resume.pdf', pdf);
+    // While it is parsed, someone else's request and the health check must still answer promptly.
+    await wait(300);
+    const pings = [];
+    for (let i = 0; i < 5; i++) { const t = performance.now(); await call('/account', other.bearer); pings.push(performance.now() - t); await wait(200); }
+    const result = await importing, took = performance.now() - started;
+    assert(Math.max(...pings) < 1000, `another user waited ${Math.round(Math.max(...pings))} ms while a big PDF was parsed`);
+    assert(took < 10_000, `the import took ${Math.round(took)} ms`);
+    assert([200, 400].includes(result.status), JSON.stringify(result));
+  });
   it('a PDF and a Word resume import as text for review (API-31)', async () => {
     const who = await user();
     assert.deepEqual(await upload(who, 'resume.pdf', readFileSync('e2e/fixtures/resume.pdf')), { status: 200, body: { facts: 'Built a calendar app used by 2,000 students.' } });
@@ -139,6 +157,16 @@ export async function contract({ databaseUrl, authBase, token, origin, privateKe
     // The speech ended 600 ms (the turn-detection silence) to 800 ms (all the silence sent) before OpenAI said so.
     const { ago } = seen.find(m => m.type === 'quiet');
     assert(ago >= 600 && ago <= 800, `ago ${ago}`);
+    socket.close();
+  });
+  it('listening without your own key is refused: it never falls back to the server owner\'s key', async () => {
+    const who = await user(), socket = new WebSocket(`${base.replace('http', 'ws')}/transcription`);
+    await once(socket, 'open');
+    const reply = new Promise(resolve => socket.addEventListener('message', event => { const m = JSON.parse(event.data); if (m.type === 'error' || m.type === 'ready') resolve(m); }));
+    socket.send(JSON.stringify({ type: 'start', accessToken: who.bearer, sessionId: who.session.id }));
+    const message = await Promise.race([reply, wait(3000, { type: 'timeout' })]);
+    assert.equal(message.type, 'error', JSON.stringify(message));
+    assert.match(message.error, /Add your OpenAI API key/);
     socket.close();
   });
   it('a key the transcription provider refuses is reported as a rejected key', async () => {

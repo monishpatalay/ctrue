@@ -26,6 +26,8 @@ function slowLink(socketPath) {
 const percentile = (values, p) => { const sorted = [...values].sort((a, b) => a - b); return Math.round(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] ?? NaN); };
 
 async function level(users, { token, base }) {
+  // Fresh accounts every round: a soak's back-to-back rounds would otherwise overlap one account's answers (one at a time by design).
+  const round = Date.now();
   const timings = [], heartbeats = [], problems = { heartbeat: 0, socket: 0, answer: 0, probe: 0 };
   const stop = Date.now() + SECONDS * 1000, sockets = [];
   const call = async (path, bearer, address, init = {}) => {
@@ -35,7 +37,7 @@ async function level(users, { token, base }) {
     return { ok: response.ok, ms: performance.now() - started, text };
   };
   const user = async index => {
-    const bearer = await token(`load-${users}-${index}`), address = `10.${users}.${index >> 8}.${index & 255}`;
+    const bearer = await token(`load-${users}-${index}-${round}`), address = `10.${users}.${index >> 8}.${index & 255}`;
     const session = JSON.parse((await call('/sessions', bearer, address, { method: 'POST', body: '{}' })).text);
     const socket = new WebSocketClient(`${base.replace('http', 'ws')}/transcription`);
     sockets.push(socket);
@@ -56,7 +58,7 @@ async function level(users, { token, base }) {
     }
   };
   const probe = async () => {
-    const bearer = await token(`load-probe-${users}`);
+    const bearer = await token(`load-probe-${users}-${Date.now()}`); // a fresh account each round: one account polling nonstop hits the per-user limit by design
     while (Date.now() < stop) {
       const result = await call('/account', bearer, '192.0.2.1').catch(() => ({ ok: false, ms: 15000 }));
       timings.push(result.ms); if (!result.ok) problems.probe++;
@@ -74,6 +76,22 @@ export async function load({ socket, authBase, token }) {
   const api = await launch(PORT, { ...mock.env, TRUST_PROXY: '1', DATABASE_URL: `postgresql://postgres@127.0.0.1:${PROXY}/postgres`, NEON_AUTH_BASE_URL: authBase });
   const results = [];
   try {
+    // Soak (CTRUE_SOAK_MINUTES): 20 users for that long; the API's memory is sampled each round and must level off.
+    const soak = Number(process.env.CTRUE_SOAK_MINUTES || 0);
+    if (soak) {
+      const { execFileSync } = await import('node:child_process'), memory = [];
+      const rss = () => Math.round(Number(execFileSync('ps', ['-o', 'rss=', '-p', String(api.pid)]).toString().trim()) / 1024);
+      for (const end = Date.now() + soak * 60_000; Date.now() < end;) {
+        const result = await level(20, { token, base: `http://127.0.0.1:${PORT}` });
+        memory.push(rss());
+        console.log(`  soak ${memory.length}: ${memory.at(-1)} MB, /account p95 ${result.probe.p95} ms, failures ${JSON.stringify(result.problems)}`);
+        if (Object.values(result.problems).some(Boolean)) throw new Error('Failures during the soak.');
+      }
+      const early = Math.max(...memory.slice(0, 5)), late = Math.max(...memory.slice(-5));
+      console.log(`Soak: ${soak} min; memory ${memory[0]} MB at start, peak ${Math.max(...memory)} MB, last ${memory.at(-1)} MB.`);
+      if (late > early * 1.5) throw new Error(`The API's memory keeps growing: ${early} MB early, ${late} MB late.`);
+      return;
+    }
     for (const users of [25, 75, 150]) {
       const result = await level(users, { token, base: `http://127.0.0.1:${PORT}` });
       results.push(result);
