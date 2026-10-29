@@ -103,12 +103,14 @@ async function aiKey(uid:string,supplied:unknown):Promise<string> {
   if(supplied===undefined||supplied==='')throw new HttpError(402,'Add your OpenAI API key in the Ctrue desktop app (Preferences) to get answers');
   return openaiKey(supplied);
 }
+// OpenAI's messages can quote part of a key or an org/project id; never log or relay those (API-25).
+const redact=(text:string)=>text.replace(/\b(sk|org|proj)-[A-Za-z0-9_*-]+/g,'[redacted]');
 function providerError(e:unknown) {
   if(e instanceof HttpError)return e;
   const status=typeof e==='object'&&e!==null&&'status' in e?e.status:undefined;
   if(status===401)return new HttpError(402,'Your OpenAI API key was rejected. Check it in Preferences');
   if(status===429)return new HttpError(429,'Your OpenAI account hit its rate limit or has no credit left');
-  if(e instanceof OpenAI.APIError)return new HttpError(502,`OpenAI error: ${e.message}`);
+  if(e instanceof OpenAI.APIError)return new HttpError(502,`OpenAI error: ${redact(e.message)}`);
   return e;
 }
 async function profile(uid:string,facts?:string) {
@@ -213,7 +215,7 @@ app.post('/answers',async(req,res,next)=>{
       if(!completed)throw new HttpError(502,'The AI stream ended before the answer finished. Try again.');
     }
     if(abort.signal.aborted)send('error',{error:'Answer stopped; check session status'});else send('done',{});res.end();
-  }catch(caught){const e=providerError(caught);if(!(caught instanceof HttpError))console.error('Answer failed:',caught instanceof Error?caught.message:caught);if(res.headersSent){if(!res.destroyed)res.end(`event: error\ndata: ${JSON.stringify({error:e instanceof HttpError?e.message:'Answer interrupted or unavailable'})}\n\n`);}else next(e);}
+  }catch(caught){const e=providerError(caught);if(!(caught instanceof HttpError))console.error('Answer failed:',redact(caught instanceof Error?caught.message:String(caught)));if(res.headersSent){if(!res.destroyed)res.end(`event: error\ndata: ${JSON.stringify({error:e instanceof HttpError?e.message:'Answer interrupted or unavailable'})}\n\n`);}else next(e);}
   finally{if(check)clearInterval(check);if(ownsAnswer)answering.delete(u.id);abort.abort();}
 });
 app.use((err:unknown,_req:Request,res:Response,_next:NextFunction)=>{const status=typeof err==='object'&&err!==null&&'status' in err?err.status:undefined;const error=err instanceof HttpError?err:err instanceof multer.MulterError?new HttpError(400,'File exceeds upload limits'):status===413?new HttpError(413,'Request exceeds size limit'):status===400?new HttpError(400,'Invalid JSON'):new HttpError(500,'Request failed');if(!res.headersSent)res.status(error.status).json({error:error.message});});

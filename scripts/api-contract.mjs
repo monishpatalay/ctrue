@@ -234,6 +234,10 @@ export async function contract({ databaseUrl, authBase, token, origin, privateKe
       try { await fn(); console.log(`  ✔ ${name}`); }
       catch (error) { failures.push(name); console.log(`  ✖ ${name}\n    ${String(error.message).split('\n').slice(0, 4).join('\n    ')}`); }
     }
+    // Every case above ran, including refused keys: the server's own log must hold no part of any OpenAI key (API-25).
+    const leaked = api.logs().match(/sk-[A-Za-z0-9_*-]{2,}/g);
+    if (leaked) { failures.push('server logs hold part of an OpenAI key (API-25)'); console.log(`  ✖ server logs hold part of an OpenAI key (API-25): ${leaked.length} match(es)`); }
+    else console.log('  ✔ server logs hold no part of any OpenAI key (API-25)');
   } finally {
     await api.stop();
     await mock.close();
