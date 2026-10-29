@@ -6,6 +6,34 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **Status:** *Fixed (commit)* means a test failed before the fix and passes after it; *Open* means reported only: it needs a device check (docs/CAPTURE-MATRIX.md), a product decision, or is low priority. API-31, A11Y-2 and WIN-1 were found by the new test suites, after the sweep.
 
+## Round 2: the 0.1.17 release candidate (2026-10-28)
+
+A-to-Z pass before releasing 0.1.17 (`4e3753e` onward): every suite, the 51 findings still open, dependency advisories, secret scans of everything published, attacks on the key and the pop-up, Semgrep, a hand review of Electron hardening, update tampering, harder hearing conditions and a soak.
+
+| ID | Severity | Finding | Status |
+|---|---|---|---|
+| R2-1 | critical | `next` 16.4.0: remote code execution in image optimization and a server-actions DoS; the website pinned `"latest"`, and the live site's `/_next/image` answers requests | Fixed (0935c02): pinned to 16.4.3. **The live website needs redeploying.** |
+| R2-2 | high | Denial-of-service advisories in `multer`, `body-parser` (API), `zod` 4.5.4 (pinned exactly by `@neondatabase/auth`), plus `undici`, `qs`, `fast-uri` | Fixed (0935c02); zod forced to 4.6.7 with overrides |
+| R2-3 | medium | Electron 41 is out of support (only 43-45 get fixes) and has two advisories | Fixed (9aa807b): Electron 44.10.0; signing, hardened runtime and fuses verified |
+| R2-4 | medium | `better-auth` <1.7.7: the OAuth Proxy plugin lets an attacker sign in as someone else | Open: no fixed release yet, even in the newest Neon Auth SDK. The plugin runs on Neon's hosted auth server, not in this code. Recheck on every release |
+| R2-5 | medium | The pop-up (which renders AI output) could call every privileged function: read the decrypted OpenAI key and tokens, sign out, disable screen-share hiding, quit (ELEC-5, REN-21) | Fixed (3e4e3ff): pop-up limited to its six channels; a real-app test proves the rest are refused |
+| R2-6 | medium | Server logs (and 502 errors) quoted OpenAI's message with a masked key and org ids (API-25) | Fixed (3f7fea4): redacted; the contract suite fails if any part of a key reaches the log |
+| R2-7 | low | Built apps' CSP still allowed `ws://127.0.0.1:5173`, the dev server | Fixed (ccbe5ea) |
+| R2-8 | low | CI workflows ran with the default GitHub token permissions | Fixed (c27f2d0): `contents: read` |
+| R2-9 | low | With the 0.1.16 transcription, nothing showed while a long question was being asked | Fixed (4e3753e): "Hearing them" with live bars |
+
+**Checked and clean**
+
+- **Secrets:** gitleaks over the full history of `ctrue` (64 commits) and `ctrue-downloads`; the unpacked app (344 files); the website build; the live website's 9 scripts (828 KB); the last 10 CI logs (8,188 lines). Nothing found. `.env` files are ignored and never committed; no repository secrets exist; workflows use none.
+- **Your OpenAI key, desktop:** stored only in the 0600 encrypted file (a canary key appears in no other file the app writes); hostile HTML in answers renders as text in both windows (no element, nothing runs); CSP allows scripts only from the app and network only to the API; navigation and new windows blocked; `openExternal` only opens fixed URLs; sandbox, context isolation, no Node in pages.
+- **Your OpenAI key, server:** never stored (no column holds it; desktop tokens are stored as hashes); the server key is used only for `owner` accounts, which only a manual database command can create; listening and answering without a user key are refused even with a server key set.
+- **Sign-in:** forged tokens (`alg:none`, HS256 with a guessable secret, wrong audience, expired, no subject) refused; racing refreshes; token floods throttled; cross-user access refused; cookies HttpOnly, Secure, SameSite=Lax; the post-login redirect is fixed to the site's own dashboard.
+- **Updates:** a tampered app re-signed with another identity fails Ctrue's designated requirement (`certificate leaf = H"ceefe3ec…"`), so macOS will not install it. Windows installers are unsigned: their safety rests on the GitHub account (two-factor, checklist item 35).
+- **Semgrep** (TypeScript, React, Node, JavaScript, secrets, OWASP Top 10): no findings in the apps; 4 false positives in test scripts calling `http://127.0.0.1`.
+- **Not run:** Electronegativity (its download was blocked by this session's permissions; its checks were done by hand above) and an OWASP ZAP active scan (large download; the equivalent header, cookie, redirect and injection checks were done directly).
+
+## Round 1: 0.1.9 (2026-10-19)
+
 | ID | Severity | Verdict | Finding | Status |
 |---|---|---|---|---|
 | [API-31](#api-31) | high | confirmed | PDF resume import fails for every PDF on Node 24 (production) | Fixed (aa23087) |
@@ -13,7 +41,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 | [WIN-1](#win-1) | high | confirmed | On Windows the desktop app refused every request from its own windows | Fixed (f4cd2b5) |
 | [API-1](#api-1) | medium | confirmed | Unauthenticated requests reach the DB and 5 MB JSON parse with no per-IP limit; 10-connection pool has no timeouts | Fixed (e31d91a) |
 | [API-7](#api-7) | medium | confirmed | AudioTurns commits 15 s of pure silence, so silence is transcribed and can leak the transcription prompt as text | Fixed (bd6f5c8) |
-| [API-8](#api-8) | medium | plausible | PDF and DOCX import parse untrusted files in-process, with no page cap, timeout or concurrency limit, on one small instance | Open |
+| [API-8](#api-8) | medium | plausible | PDF and DOCX import parse untrusted files in-process, with no page cap, timeout or concurrency limit, on one small instance | Measured, no freeze (2b29306) |
 | [API-13](#api-13) | medium | plausible | No WS ping/pong: a half-open socket keeps the `transcribing` guard, so reconnect is refused 409 while the lease stays alive | Fixed (c86a297) |
 | [API-14](#api-14) | medium | plausible | Transcription provider failures are fatal and there is no seam to test the provider path | Fixed (9c751b8) (listening now reconnects by itself after a passing provider failure) |
 | [API-17](#api-17) | medium | confirmed | Web dashboard 'Generate answer' never sends the OpenAI key, so it returns 402 for every non-owner and starts a session first | Fixed (5163666) |
@@ -51,7 +79,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 | [API-22](#api-22) | low | confirmed | Status-code and JSON contract gaps, and unexpected 500s are not logged | Open |
 | [API-23](#api-23) | low | confirmed | Wrong user-facing text on lease loss and in free mode | Open |
 | [API-24](#api-24) | low | confirmed | Shutdown drains for 2 s while Render allows 30 s; deploys drop live audio and in-memory sign-in codes | Open |
-| [API-25](#api-25) | low | confirmed | Server logs can contain fragments of users' OpenAI keys and org IDs | Open |
+| [API-25](#api-25) | low | confirmed | Server logs can contain fragments of users' OpenAI keys and org IDs | Fixed (3f7fea4) |
 | [API-26](#api-26) | low | confirmed | CORS and WS origin rules have no automated check | Fixed (9529464) |
 | [API-27](#api-27) | low | plausible | TRUST_PROXY=1 correctness behind Render's edge is unverified; per-IP limits can collapse into shared buckets | Open |
 | [API-28](#api-28) | low | confirmed | DB test harness depends on the public OpenAI API, a hard-coded migration list and fixed ports | Fixed (e31d91a) |
@@ -61,12 +89,12 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 | [DEP-1](#dep-1) | low | plausible | Render runs NODE_ENV=development, so the production start gate is bypassed and /health returns 200 even when unconfigured | Open |
 | [DEP-2](#dep-2) | low | confirmed | render.yaml drift: dead WEB_URL, lockfile-triggered restarts, unverified TRUST_PROXY hop count | Open |
 | [DEP-3](#dep-3) | low | plausible | CORS and WebSocket origin policy is untested and unforgiving (exact-match, no normalisation, previews and www blocked) | Fixed (9529464) |
-| [DEP-PIN](#dep-pin) | low | plausible | next, react, react-dom, typescript and @types/* are 'latest' on top of a beta Neon Auth SDK that the code works around | Open |
+| [DEP-PIN](#dep-pin) | low | plausible | next, react, react-dom, typescript and @types/* are 'latest' on top of a beta Neon Auth SDK that the code works around | Partly fixed: next pinned (0935c02) |
 | [DOC-1](#doc-1) | low | confirmed | docs/API.md no longer matches the API (walkthrough mode, key header, metering, credits) | Fixed (622c602) |
 | [DOC-2](#doc-2) | low | confirmed | Stale or contradicting claims in README, VERIFICATION.md, NEON-MIGRATION.md and the landing page | Open |
 | [ELEC-3](#elec-3) | low | plausible | `quitting=true` is set before quitAndInstall and never reset when the install fails | Open |
 | [ELEC-4](#elec-4) | low | confirmed | Later failing update check hides 'Restart to update' for an already-downloaded update, and the fallback flag is sticky | Fixed (8e96f4c) |
-| [ELEC-5](#elec-5) | low | confirmed | Pop-up window can invoke every privileged IPC channel (plaintext OpenAI key, credentials, signout, protect(false), quit) | Open |
+| [ELEC-5](#elec-5) | low | confirmed | Pop-up window can invoke every privileged IPC channel (plaintext OpenAI key, credentials, signout, protect(false), quit) | Fixed (3e4e3ff) |
 | [ELEC-6](#elec-6) | low | plausible | captureGrant is one boolean plus an uncleared timer, so concurrent or back-to-back captures lose the grant | Open |
 | [ELEC-8](#elec-8) | low | confirmed | Default global shortcuts steal system-wide keys and stay armed while the window is 'closed'; Shift-only or Alt-only combos are accepted | Fixed (5895240) |
 | [ELEC-9](#elec-9) | low | plausible | Any startup failure quits silently with no dialog or log; no renderer-crash recovery | Open |
@@ -89,7 +117,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 | [REL-2](#rel-2) | low | plausible | Build-time public env is unchecked: a missing value silently degrades the site (API URL becomes localhost, download CTA, contact, sign-in) | Open |
 | [REN-4](#ren-4) | low | confirmed | One failed heartbeat (503, 429, timeout) stops live capture and pauses the session, although the server lease tolerates three misses | Fixed (9c751b8) |
 | [REN-6](#ren-6) | low | confirmed | 'Sign out & clear context' and 'Clear session context' leave the walkthrough, problem screenshots, question and pop-up question in memory | Fixed (8e96f4c) |
-| [REN-7](#ren-7) | low | plausible | Pop-up state over 200 KB is rejected by main and the renderer swallows the error, so the pop-up silently freezes | Open |
+| [REN-7](#ren-7) | low | plausible | Pop-up state over 200 KB is rejected by main and the renderer swallows the error, so the pop-up silently freezes | Mitigated, test (0649c77) |
 | [REN-10](#ren-10) | low | plausible | Profile 'Save reviewed facts' is enabled before the profile has loaded, so a failed or slow load followed by Save overwrites stored facts with the textbox contents | Fixed (8e96f4c) |
 | [REN-11](#ren-11) | low | confirmed | A transient updater error after the update has downloaded replaces 'Restart to update' with a manual-download banner | Fixed (8e96f4c) |
 | [REN-12](#ren-12) | low | confirmed | 'Check for updates' says 'You have the latest version' when the check failed | Fixed (9ada226) |
@@ -100,7 +128,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 | [REN-18](#ren-18) | low | confirmed | buildCode uses String.replace with code as the replacement, so '$&', "$'", '$`' and '$$' in step code corrupt the rebuilt solution and trigger a false 'solution differs' warning | Fixed (dd705ab) |
 | [REN-19](#ren-19) | low | confirmed | controlSession pause/end mutates sessionRef before the server call and never rolls back on failure, so UI state and ref diverge | Open |
 | [REN-20](#ren-20) | low | plausible | A desktop 'auth' event (deep link sign-in) does not reset session, capture or context when it replaces an existing sign-in | Open |
-| [REN-21](#ren-21) | low | confirmed | The pop-up webContents gets the full privileged preload API and every IPC channel (OpenAI key, tokens, shortcuts, quit) | Open |
+| [REN-21](#ren-21) | low | confirmed | The pop-up webContents gets the full privileged preload API and every IPC channel (OpenAI key, tokens, shortcuts, quit) | Fixed (3e4e3ff) |
 | [REN-22](#ren-22) | low | plausible | No React error boundary: any render exception blanks the window while the session, shortcuts and capture keep running | Open |
 | [REN-23](#ren-23) | low | confirmed | Stale 'credits' copy in a free, bring-your-own-key product | Open |
 | [REN-24](#ren-24) | low | confirmed | Pop-up shortcut hint never refreshes after rebinding, and a partially failed Save leaves an action unbound yet persisted | Fixed (a3e939d) |
@@ -172,7 +200,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **PDF and DOCX import parse untrusted files in-process, with no page cap, timeout or concurrency limit, on one small instance** · medium · plausible · `apps/api/src/index.ts:147`
 
-- **Status:** Open
+- **Status:** Measured: a 1,500-page PDF does not delay other users (2b29306)
 - **What happens:** Any signed-in user (Google sign-up is open) can POST /profile/import (8 MB multer memory buffer, line 143). pdf-parse 1.1.4 bundles pdf.js v1.10.100 (2018) with `max:0` (all pages), `disableWorker=true` and no timeout (line 147 passes no options), so the parse blocks the single event loop. An 8 MB PDF with thousands of pages or a pathological xref stalls every WS lease check and SSE stream. For DOCX, docxSize allows 32 MB of inflation (core.ts:81), and mammoth builds a DOM from it. On a Render starter instance (512 MB) that is an OOM risk that kills all live sessions. The inflate in docxSize is synchronous as well. The general limit is 120 req/min per user, so 8 MB x concurrent requests is unbounded memory.
 - **Verifier:** index.ts:147 calls `pdf(file.buffer)` with default options (pdf-parse max:0 = all pages, in-process, no timeout). docxSize allows 32 MB of inflation, and the inflate is synchronous. Mammoth then parses it, with no import-specific limit or concurrency cap, on a single instance. Any Google sign-up can reach the route, and the 120/min limit does not bound memory. Event-loop stall and OOM are reachable in principle, but actual stall time and RSS for a crafted file are unmeasured. Authenticated-only, so medium.
 - **Test (performance):** Against the demo API (the import route does not need the DB), post (a) an 8 MB PDF of ~20k blank pages and (b) a DOCX with a ~31 MB document.xml of nested paragraphs. Sample perf_hooks.monitorEventLoopDelay and RSS. Assert event-loop delay < 200 ms and RSS < 300 MB, or an early 400. Pass `{max: N}` to pdf-parse, add a per-user 3/min import limit and a concurrency cap of 1.
@@ -514,7 +542,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **Server logs can contain fragments of users' OpenAI keys and org IDs** · low · confirmed · `apps/api/src/index.ts:197`
 
-- **Status:** Open
+- **Status:** Fixed (3f7fea4)
 - **What happens:** Non-HttpError provider failures are logged with `console.error('Answer failed:', caught.message)`. OpenAI 401 messages contain the masked key including its last four characters ('Incorrect API key provided: sk-proj-****abcd'), and 429 messages contain the organization ID. Because providerError() converts the error to an HttpError only after the instanceof check, the original message is what gets logged. This contradicts the product's 'never stored' key promise for Render's retained logs.
 - **Verifier:** index.ts:197 logs `caught.message` before providerError converts it. OpenAI SDK 401 messages embed the masked key (prefix plus last 4 characters), and 429 messages include the org ID. The 401 case is by definition an invalid key, and the data is already masked by OpenAI, so real exposure is minimal. It is still avoidable by logging status and type only. Low.
 - **Test (security):** Fake upstream returns 401 with a masked-key body and 429 with an org-id body. Capture the API's stderr and assert it contains no `sk-` substring and no `org-` id; log only status and error type.
@@ -649,7 +677,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **Pop-up window can invoke every privileged IPC channel (plaintext OpenAI key, credentials, signout, protect(false), quit)** · low · confirmed · `apps/desktop/electron/main.ts:53`
 
-- **Status:** Open
+- **Status:** Fixed (3e4e3ff)
 - **What happens:** assertSender accepts either window.webContents or popup.webContents for all channels. A renderer compromise in the pop-up gets `ctrue:openai-key` (decrypts and returns the saved sk- key), `ctrue:credentials` and `ctrue:refresh` (access token and rotation), `ctrue:signout`, `ctrue:set-openai-key`, `ctrue:shortcuts`, `ctrue:protect(false)` (drops capture exclusion on both windows), `ctrue:relaunch`, `ctrue:quit`, and `ctrue:popup-state` to itself. The pop-up needs only config, popup-ask, popup-hide, popup-mic-off and popup-step. Exposure today is limited: Markdown.tsx builds React elements only and the packaged CSP is script-src 'self'. This is defence in depth, but the pop-up renders model output derived from screen and audio content.
 - **Verifier:** assertSender (L55) accepts either window.webContents or popup.webContents for every ipc() channel. The pop-up shares the same `webPreferences.preload`, so it can call openaiKey, credentials, refresh, signout, protect, relaunch and quit. Popup.tsx only uses config, popupAsk, popupHide, popupMicOff and popupStep. This is a least-privilege gap, but exploiting it needs a separate renderer compromise. Markdown.tsx and Popup.tsx contain no innerHTML, dangerouslySetInnerHTML or href sinks, and model output is rendered as React elements. The finding itself calls it defence in depth, so medium is overstated.
 - **Test (security):** Replace the single check with a per-channel allowlist, e.g. `const popupChannels = new Set([...])`. Test it in an e2e-electron spec that evaluates `window.ctrue.openaiKey()`, `signout()` and `protect(false)` inside the #popup page and expects rejection. Also assert the main window cannot call the popup-only channels.
@@ -856,7 +884,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **Pop-up state over 200 KB is rejected by main and the renderer swallows the error, so the pop-up silently freezes** · low · plausible · `apps/desktop/src/App.tsx:426`
 
-- **Status:** Open
+- **Status:** Mitigated: only the last 10 answers are kept; a 22-answer test guards it (0649c77)
 - **What happens:** popupState sends the whole history (up to 10 answers, each stored with its full question) plus the current walk step (code up to 20,000 chars, details up to 8,000). Stored questions can be large: explainStep prompts carry up to 4,000 chars of problem plus 8,000 of step JSON (App.tsx:376), and typed questions go up to 12,000. Ten entries of about 20 KB, or a few big Explain-step rounds with a long pasted problem, push JSON.stringify(value).length past 200000. electron/main.ts:200 throws and App.tsx:426 does .catch(() => {}). The pop-up stops updating, with no new answers, no listening state and no errors. It stays broken until history is cleared, because the oversized entries stay among the last 10.
 - **Verifier:** Mechanism is real: main.ts:200 throws above 200000 chars and App.tsx:426 swallows it with .catch(() => {}). But it needs about 20 KB per history entry on average across 10 entries. Typical entries are 3-8 KB (problem text 1-2 KB, answer at most 2500 tokens), so about 50-80 KB total. Only pathological pasted problems or repeated long Explain-step rounds reach it.
 - **Test (integration):** Unit-test a pure buildPopupState(...) extracted from the effect: with 10 answers whose question is 12,000 chars and text is 10,000 chars, plus a max-size walk step, assert JSON.stringify(state).length < 200000 (truncate history or questions). Add a main-process test that ctrue:popup-state rejects at 200001 and that the renderer surfaces the failure.
@@ -955,7 +983,7 @@ Read-only risk sweep run on 2026-10-19 against Ctrue 0.1.9 (`d01e6a5`). Four rev
 
 **The pop-up webContents gets the full privileged preload API and every IPC channel (OpenAI key, tokens, shortcuts, quit)** · low · confirmed · `apps/desktop/electron/main.ts:55`
 
-- **Status:** Open
+- **Status:** Fixed (3e4e3ff)
 - **What happens:** assertSender accepts the pop-up for all channels, and both windows share one preload (line 129) exposing credentials(), refresh(), openaiKey(), signout(), shortcuts() and quit(). The pop-up renders model output, user speech, step code and the OpenAI-derived Markdown. Today the Markdown component is HTML-injection-safe (React elements only, no links) and CSP is script-src 'self', so there is no known exploit. But any future renderer bug in the pop-up would be able to read the decrypted OpenAI key and the desktop access token. The pop-up needs only config, onEvent and popup* calls.
 - **Verifier:** main.ts:55 accepts the pop-up for every channel, and both windows share one webPreferences/preload (129, 136). So the pop-up can call openaiKey(), credentials(), refresh() and quit(). This is a defense-in-depth gap only. Markdown.tsx builds React elements with no links or HTML, the CSP is script-src 'self', and the permission handlers are restricted to the main window. No current exploit.
 - **Test (e2e-electron):** Playwright-for-Electron (apps/desktop/tests/e2e/popup-privilege.spec.ts): from the popup webContents call window.ctrue.openaiKey() and credentials(); assert they reject. Add a unit check that ipc() takes an allowed-senders list per channel.

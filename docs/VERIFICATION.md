@@ -7,6 +7,28 @@ A full test pass of the three apps, the database and the release flow, run again
 
 ## How to check
 
+## Round 2: 0.1.17 release candidate (2026-10-28)
+
+| Command | What it covers | Result |
+| --- | --- | --- |
+| `npm run typecheck`, `npm test`, `npm run build` | All three apps | Passed |
+| `npm run test:coverage` | Unit tests with coverage of the core modules | Passed; 96% lines |
+| `npm run test:smoke` | Demo API over HTTP, SSE and WebSocket; refusal to start on unsafe settings | Passed |
+| `npm run test:database` | Migrations, races, live API with local JWKS, 24 contract cases (adds: 1,500-page PDF does not delay others; no own key, no listening; no key fragment in server logs) | Passed |
+| `npm run test:e2e` | 81 Playwright cases: website 17, renderer 37, pop-up 14, real Electron app 13 (adds: pop-up limited to its own functions, canary key never on disk in plain text, hostile HTML never runs, connection drop mid-speech, Hindi then English, question during an answer, 22 long answers) | Passed |
+| `npm run test:ai` | Real OpenAI through the real API | Passed; first words 1.6 s; transcript 1.25 s after speech ends |
+| `npm run test:hearing` | 8 questions, 5 voices, 8 conditions incl. Opus 16 kbit/s, music, cross-talk | 0-1% words wrong (9% with cross-talk), nothing missed; answers start 1.6-1.7 s after the clip |
+| `npm run test:load` | 25/75/150 users; plus `CTRUE_SOAK_MINUTES=30` and `=10` | No failures at 150 users (p95 114 ms); soak memory flat at 55-82 MB |
+| `npm run verify:release` | Signed 0.1.17 candidate on Electron 44 | Passed: certificate, hardened runtime, fuses |
+| `npm run probe:production` | Live API and website, read-only | One failure: privacy contact placeholder (LEG-1) |
+| `npm audit --workspaces` | Dependencies | 1 critical (better-auth, no fix released; runs on Neon's server), 8 low |
+| gitleaks, Semgrep, secret scans | History of both repos, packaged app, web build, live website scripts, CI logs | Clean; Semgrep only 4 test-script false positives |
+| Update tampering | A re-signed tampered app against Ctrue's designated requirement | Refused |
+
+Details and the finding list: [TEST-FINDINGS.md](TEST-FINDINGS.md), round 2.
+
+## Round 1
+
 | Command | What it covers | Result |
 | --- | --- | --- |
 | `npm run typecheck` | All three apps | Passed |
