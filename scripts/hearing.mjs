@@ -28,6 +28,10 @@ const CONDITIONS = [
   { name: 'very quiet', level: -48 },
   { name: 'background noise', level: -26, noise: -38 },
   { name: 'pause mid-sentence', level: -26, pause: 0.9 },
+  { name: 'call compression', level: -26, codec: true },
+  { name: 'background music', level: -26, music: -34 },
+  // A second person talks over the start of each question; their words count as errors, so expect a higher rate.
+  { name: 'talked over', level: -26, over: 'Sorry, can you hear me? I think my internet is lagging.' },
 ];
 
 function say(voice, text) {
@@ -53,6 +57,22 @@ function noisy(samples, level) {
   const rms = Math.sqrt(noise.reduce((n, s) => n + s * s, 0) / noise.length);
   return samples.map((s, i) => s + noise[i] * db(level) / rms);
 }
+// Opus at 16 kbit/s, a call on a weak connection (needs ffmpeg).
+function compressed(samples) {
+  const raw = join(tmpdir(), `ctrue-hearing-${process.pid}.raw`), opus = `${raw}.opus`;
+  writeFileSync(raw, Buffer.from(Int16Array.from(samples, s => Math.round(Math.max(-1, Math.min(1, s)) * 32767)).buffer));
+  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 's16le', '-ar', '24000', '-ac', '1', '-i', raw, '-c:a', 'libopus', '-b:a', '16k', opus]);
+  const back = execFileSync('ffmpeg', ['-loglevel', 'error', '-i', opus, '-f', 's16le', '-ar', '24000', '-ac', '1', '-'], { maxBuffer: 1 << 28 });
+  const out = Float32Array.from({ length: back.length >> 1 }, (_, i) => back.readInt16LE(i * 2) / 32768);
+  return out.length >= samples.length ? out.subarray(0, samples.length) : join32([out, silence((samples.length - out.length) / RATE)]);
+}
+// Chords that change every half second, at the given RMS.
+function withMusic(samples, level) {
+  const notes = [[220, 277, 330], [196, 247, 294], [175, 220, 262], [196, 247, 330]];
+  const music = samples.map((_, i) => { const t = i / RATE, chord = notes[Math.floor(t * 2) % notes.length], env = 0.6 + 0.4 * Math.cos(Math.PI * 2 * t * 2); return env * chord.reduce((n, f) => n + Math.sin(2 * Math.PI * f * t), 0) / 3; });
+  const rms = Math.sqrt(music.reduce((n, s) => n + s * s, 0) / music.length);
+  return samples.map((s, i) => s + music[i] * db(level) / rms);
+}
 function audioFor(condition) {
   const marks = [], ends = [], parts = [silence(1)];
   let at = RATE;
@@ -62,6 +82,7 @@ function audioFor(condition) {
       const words = text.split(' '), half = Math.ceil(words.length / 2);
       speech = join32([say(voice, words.slice(0, half).join(' ')), silence(condition.pause), say(voice, words.slice(half).join(' '))]);
     } else speech = say(voice, text);
+    if (condition.over) { const other = say('Moira', condition.over).map(s => s * 0.5), mixed = speech.slice(); other.forEach((s, i) => { if (i < mixed.length) mixed[i] += s; }); speech = mixed; }
     marks.push(at / RATE); ends.push((at + speech.length) / RATE);
     parts.push(speech, silence(4));
     at += speech.length + 4 * RATE;
@@ -70,6 +91,8 @@ function audioFor(condition) {
   let samples = join32(parts);
   samples = scaled(samples, condition.level);
   if (condition.noise) samples = noisy(samples, condition.noise);
+  if (condition.music) samples = withMusic(samples, condition.music);
+  if (condition.codec) samples = compressed(samples);
   return { samples, marks, ends };
 }
 const words = text => text.toLowerCase().replace(/[’']/g, '').replace(/[^a-z0-9 ]+/g, ' ').trim().split(/\s+/).filter(Boolean);
@@ -124,7 +147,7 @@ export async function hearing({ databaseUrl, authBase, token }, setups = [{ name
   const key = process.env.CTRUE_TEST_OPENAI_KEY;
   if (!key) throw new Error('Set CTRUE_TEST_OPENAI_KEY to run the hearing check (it uses your own key and costs a few cents).');
   const audio = CONDITIONS.map(condition => ({ condition, ...audioFor(condition) }));
-  const report = ['# How well Ctrue hears', '', `${SENTENCES.length} interview questions, 5 voices, streamed at live speed. Word error rate: lower is better.`, ''];
+  const report = ['# How well Ctrue hears', '', `${SENTENCES.length} interview questions, 5 voices, ${CONDITIONS.length} conditions, streamed at live speed. Word error rate: lower is better.`, ''];
   const summary = [];
   for (const setup of setups) {
     const api = await launch(PORT, { DATABASE_URL: databaseUrl, NEON_AUTH_BASE_URL: authBase, TRUST_PROXY: '1', ...setup.env });
