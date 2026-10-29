@@ -15,6 +15,23 @@ const SPEECH = Buffer.alloc(9600), SILENCE = Buffer.alloc(9600); // 200 ms of 24
 for (let i = 0; i < SPEECH.length; i += 2) SPEECH.writeInt16LE(3000, i);
 
 // Starts an API process with these settings and waits until it answers.
+// A plain PDF with one line of text per page, built by hand so no browser is needed (CI has none).
+function manyPages(count, line) {
+  const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'], kids = [];
+  for (let i = 0; i < count; i++) {
+    const text = `BT /F1 10 Tf 40 800 Td (${line} Page ${i + 1}) Tj ET`;
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ${objects.length + 2} 0 R >>`);
+    kids.push(`${objects.length} 0 R`);
+    objects.push(`<< /Length ${text.length} >>\nstream\n${text}\nendstream`);
+  }
+  objects[1] = `<< /Type /Pages /Kids [${kids.join(' ')}] /Count ${count} >>`;
+  let body = '%PDF-1.4\n';
+  const offsets = objects.map((object, i) => { const at = body.length; body += `${i + 1} 0 obj\n${object}\nendobj\n`; return at; });
+  const xref = body.length;
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map(at => `${String(at).padStart(10, '0')} 00000 n \n`).join('')}`;
+  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(body, 'latin1');
+}
 export async function launch(port, env) {
   const api = spawn(process.execPath, ['--import', 'tsx', 'apps/api/src/index.ts'], { env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', NODE_ENV: 'test', DEMO_MODE: 'false', METERING: 'false', OPENAI_API_KEY: '', ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
   let logs = '';
@@ -116,11 +133,7 @@ export async function contract({ databaseUrl, authBase, token, origin, privateKe
     assert.match(text, /event: error\ndata: \{"error":"[^"]+"\}\n\n$/, `stream ended without an error event: ...${text.slice(-200)}`);
   });
   it('a huge PDF (1,500 pages, under the size limit) does not freeze the API for other users (API-8)', async () => {
-    const { chromium } = await import('@playwright/test');
-    const browser = await chromium.launch(), page = await browser.newPage();
-    await page.setContent(`<div style="page-break-after:always;font:9px sans-serif">${'Experienced engineer building distributed systems. '.repeat(60)}</div>`.repeat(1500));
-    const pdf = await page.pdf({ format: 'A4' });
-    await browser.close();
+    const pdf = manyPages(1500, 'Experienced engineer building distributed systems.');
     const who = await user(), other = await user();
     const started = performance.now(), importing = upload(who, 'resume.pdf', pdf);
     // While it is parsed, someone else's request and the health check must still answer promptly.
@@ -130,7 +143,7 @@ export async function contract({ databaseUrl, authBase, token, origin, privateKe
     const result = await importing, took = performance.now() - started;
     assert(Math.max(...pings) < 1000, `another user waited ${Math.round(Math.max(...pings))} ms while a big PDF was parsed`);
     assert(took < 10_000, `the import took ${Math.round(took)} ms`);
-    assert([200, 400].includes(result.status), JSON.stringify(result));
+    assert.equal(result.status, 200, JSON.stringify(result).slice(0, 200));
   });
   it('a PDF and a Word resume import as text for review (API-31)', async () => {
     const who = await user();
