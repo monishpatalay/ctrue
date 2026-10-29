@@ -516,3 +516,25 @@ test('speech in Hindi is dropped: never shown, never answered', async ({ page })
   await expect(page.locator('.transcript-final')).toHaveCount(1);
   expect(asked.map(a => a.question)).toEqual(['What is a stack?']);
 });
+
+// A screenshot or a speaker can inject text into the answer: it must render as text, never run (the OpenAI key is in this window).
+const HOSTILE = 'Here you go <img src=x onerror="window.__pwned=1"> <script>window.__pwned=1</script> [click](javascript:window.__pwned=1) <iframe src="javascript:window.__pwned=1"></iframe>\n\n```html\n<svg onload="window.__pwned=1">\n```';
+test('hostile HTML in an answer is shown as text and never runs, in the window and the pop-up', async ({ page }) => {
+  await answers(page, () => [['token', { text: HOSTILE }], ['done', {}]]);
+  await demo(page);
+  await page.locator('#question').fill('Read the screenshot');
+  await page.getByRole('button', { name: /Generate answer/ }).click();
+  await expect(page.locator('.answer-text')).toContainText('<script>window.__pwned=1</script>');
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => (window as unknown as { __pwned?: number }).__pwned)).toBeUndefined();
+  expect(await page.locator('.answer-text img, .answer-text script, .answer-text iframe, .answer-text a, .answer-text svg').count()).toBe(0);
+  // The pop-up gets the same text.
+  const popup = await page.context().newPage();
+  await installCtrue(popup);
+  await popup.goto('/#popup');
+  await emit(popup, 'popup-state', { status: 'listening', question: 'q', answer: HOSTILE, heard: HOSTILE, error: '', shots: 0, mic: false, voice: 0, history: [{ question: HOSTILE, text: HOSTILE }], walk: null });
+  await expect(popup.locator('.popup-answer').last()).toContainText('<script>');
+  await popup.waitForTimeout(300);
+  expect(await popup.evaluate(() => (window as unknown as { __pwned?: number }).__pwned)).toBeUndefined();
+  expect(await popup.locator('.popup-body img, .popup-body script, .popup-body iframe, .popup-body a, .popup-body svg').count()).toBe(0);
+});

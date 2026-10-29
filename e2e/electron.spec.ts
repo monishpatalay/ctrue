@@ -192,3 +192,21 @@ test('the pop-up can use only its own functions: never the OpenAI key, sign-in t
   // Its own functions still work.
   await panel.evaluate(() => (window as unknown as { ctrue: { config(): Promise<unknown>; popupHide(): Promise<void> } }).ctrue.config());
 });
+
+test('the OpenAI key is stored only encrypted: nothing on disk holds it in plain text (canary)', async () => {
+  const canary = `sk-canary${Date.now()}${'Q'.repeat(24)}`;
+  await main.evaluate(key => (window as unknown as { ctrue: { setOpenaiKey(v: string): Promise<void> } }).ctrue.setOpenaiKey(key), canary);
+  expect(await main.evaluate(() => (window as unknown as { ctrue: { openaiKey(): Promise<string> } }).ctrue.openaiKey())).toBe(canary);
+  // Use it the way the app does: an answer request carries it to the API.
+  await main.evaluate(async key => { const { api } = await (window as unknown as { ctrue: { config(): Promise<{ api: string }> } }).ctrue.config(); await fetch(`${api}/answers`, { method: 'POST', headers: { 'X-OpenAI-Key': key, 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {}); }, canary);
+  await app.close();
+  const { readdirSync, statSync } = await import('node:fs');
+  const files: string[] = [];
+  const walk = (dir: string) => { for (const name of readdirSync(dir)) { const path = join(dir, name); const info = statSync(path); if (info.isDirectory()) walk(path); else files.push(path); } };
+  walk(profile);
+  const holding = files.filter(file => { const bytes = readFileSync(file); return bytes.includes(canary) || bytes.includes(Buffer.from(canary, 'utf16le')); });
+  expect(holding, `plain-text key in: ${holding.join(', ')}`).toEqual([]);
+  const stored = files.find(file => file.endsWith('openai-key.enc'));
+  expect(stored).toBeTruthy();
+  if (process.platform !== 'win32') expect(statSync(stored!).mode & 0o077).toBe(0);
+});

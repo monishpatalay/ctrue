@@ -2,6 +2,10 @@ name: Build the Windows release
 # Run by hand for a release: tests the real Electron app on Windows, then builds the production installer and its
 # update feed (latest.yml) for the GitHub release. Unsigned: Windows SmartScreen asks users to choose Run anyway.
 on: workflow_dispatch
+# Least privilege: these workflows only read the code and upload artifacts.
+permissions:
+  contents: read
+
 jobs:
   windows:
     runs-on: windows-latest

@@ -1,5 +1,9 @@
 name: Check Ctrue
 on: [push, pull_request]
+# Least privilege: these workflows only read the code and upload artifacts.
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
