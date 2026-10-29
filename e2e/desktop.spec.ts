@@ -15,13 +15,15 @@ const STEPS = [
 ];
 const standard = (body: Asked): Reply => body.mode === 'walkthrough' ? [...STEPS.map(step => ['step', step] as [string, unknown]), ['done', {}]] : [['token', { text: `Answer to: ${body.question.slice(0, 60)}` }], ['done', {}]];
 
-async function answers(page: Page, reply: (body: Asked, index: number) => Reply = standard) {
+// delay: how long the answer takes to arrive, so a test can speak while one is still being written.
+async function answers(page: Page, reply: (body: Asked, index: number) => Reply = standard, delay = 0) {
   const asked: Asked[] = [];
   await page.route(`${API}/answers`, async route => {
     if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: CORS });
     const body = { ...route.request().postDataJSON(), key: route.request().headers()['x-openai-key'] } as Asked;
     asked.push(body);
     const result = reply(body, asked.length - 1);
+    if (delay) await new Promise(resolve => setTimeout(resolve, delay));
     if (!Array.isArray(result)) return route.fulfill({ status: result.status, headers: { ...CORS, 'content-type': 'application/json' }, body: JSON.stringify({ error: result.error }) });
     await route.fulfill({ status: 200, headers: { ...CORS, 'content-type': 'text/event-stream' }, body: result.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join('') });
   });
@@ -451,6 +453,37 @@ test('the pop-up shows the speaker is being heard from the moment they start unt
   await emit(page, 'capture');
   await expect.poll(async () => (await lastPopupState(page))?.voice, { timeout: 4_000 }).toBeGreaterThan(0);
   await expect.poll(async () => (await lastPopupState(page))?.voice, { timeout: 4_000 }).toBe(0);
+});
+test('a connection drop while they are talking clears "Hearing them" and the next question is still answered', async ({ page }) => {
+  const asked = await answers(page);
+  await transcription(page, [
+    (send, close) => { send({ type: 'ready' }); setTimeout(() => send({ type: 'speaking' }), 200); setTimeout(() => { send({ type: 'error', error: 'Transcription provider failed' }); close(1011); }, 900); },
+    send => { send({ type: 'ready' }); setTimeout(() => send({ type: 'speaking' }), 300); setTimeout(() => send({ type: 'quiet', id: 'r1', ago: 0 }), 900); setTimeout(() => send(said('What is a heap?', 'r1')), 1200); },
+  ]);
+  await demo(page);
+  await emit(page, 'capture');
+  await expect.poll(async () => (await lastPopupState(page))?.voice, { timeout: 4_000 }).toBeGreaterThan(0);
+  await expect(page.locator('.answer-text')).toContainText('Answer to: What is a heap?', { timeout: 10_000 });
+  expect(asked.map(a => a.question)).toEqual(['What is a heap?']);
+  expect((await lastPopupState(page))?.voice).toBe(0);
+});
+test('Hindi speech is dropped and does not block the English question after it', async ({ page }) => {
+  const asked = await answers(page);
+  await speech(page, [[100, { type: 'speaking' }], [600, { type: 'quiet', id: 'h', ago: 0 }], [800, said('तुम आज क्या कर रहे हो?', 'h')],
+    [1200, { type: 'speaking' }], [1800, { type: 'quiet', id: 'e', ago: 0 }], [2100, said('What is a trie?', 'e')]]);
+  await demo(page);
+  await emit(page, 'capture');
+  await expect(page.locator('.answer-text')).toContainText('Answer to: What is a trie?', { timeout: 6_000 });
+  expect(asked.map(a => a.question)).toEqual(['What is a trie?']);
+});
+test('a question asked while the last answer is still being written is answered right after it', async ({ page }) => {
+  const asked = await answers(page, standard, 1_500);
+  await speech(page, [[100, { type: 'speaking' }], [500, { type: 'quiet', id: 'a', ago: 0 }], [700, said('What is a stack?', 'a')],
+    [2600, { type: 'speaking' }], [3000, { type: 'quiet', id: 'b', ago: 0 }], [3200, said('And what is a queue?', 'b')]]);
+  await demo(page);
+  await emit(page, 'capture');
+  await expect.poll(() => asked.map(a => a.question), { timeout: 10_000 }).toEqual(['What is a stack?', 'And what is a queue?']);
+  await expect(page.locator('.answer-text')).toContainText('Answer to: And what is a queue?');
 });
 test('speech starting again during the 1.8 s keeps waiting, even when its text is slow', async ({ page }) => {
   const asked = await answers(page);

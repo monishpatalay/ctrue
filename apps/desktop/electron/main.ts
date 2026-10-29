@@ -53,12 +53,15 @@ function showPopup() {
 // Only the top frame of Ctrue's own two windows, showing the app's own page (file:// when packaged, the dev server in
 // development). Navigation away is blocked, so that frame can only hold Ctrue's page. Comparing file paths instead
 // broke on Windows, where the same folder can be spelled differently (short names, drive-letter case).
-function assertSender(event: Electron.IpcMainInvokeEvent) {
+// The pop-up shows AI output, so it gets only the channels it needs: never the OpenAI key, sign-in tokens or quit.
+const POPUP_CHANNELS = new Set(['ctrue:config', 'ctrue:popup-ask', 'ctrue:popup-hide', 'ctrue:popup-clear', 'ctrue:popup-mic-off', 'ctrue:popup-step']);
+function assertSender(event: Electron.IpcMainInvokeEvent, channel: string) {
   const frame = event.senderFrame, url = frame?.url;
   const own = [window, popup].some(target => target && event.sender === target.webContents && frame?.routingId === target.webContents.mainFrame.routingId && frame.processId === target.webContents.mainFrame.processId);
   if (!own || !url || (rendererURL ? new URL(url).origin !== new URL(rendererURL).origin : new URL(url).protocol !== 'file:')) throw new Error('Untrusted application frame.');
+  if (popup && event.sender === popup.webContents && !POPUP_CHANNELS.has(channel)) throw new Error('Untrusted application frame.');
 }
-function ipc(channel: string, handler: (...args: unknown[]) => unknown) { ipcMain.handle(channel, (event, ...args) => { assertSender(event); return handler(...args); }); }
+function ipc(channel: string, handler: (...args: unknown[]) => unknown) { ipcMain.handle(channel, (event, ...args) => { assertSender(event, channel); return handler(...args); }); }
 function writeCredentials<T>(operation: () => Promise<T>): Promise<T> {
   const result = credentialWrites.catch(() => {}).then(operation);
   credentialWrites = result;

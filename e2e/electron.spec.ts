@@ -178,3 +178,17 @@ test('Clear in the pop-up reaches the main window', async () => {
   await panel.evaluate(() => (window as unknown as { ctrue: { popupClear(): Promise<void> } }).ctrue.popupClear());
   await expect(main.locator('#question')).toHaveValue('');
 });
+
+test('the pop-up can use only its own functions: never the OpenAI key, sign-in tokens, sign-out or quit (ELEC-5)', async () => {
+  const panel = await popup();
+  const refused = await panel.evaluate(async () => {
+    const ctrue = (window as unknown as { ctrue: Record<string, (...args: unknown[]) => Promise<unknown>> }).ctrue;
+    const results: Record<string, string> = {};
+    for (const [name, args] of [['openaiKey', []], ['credentials', []], ['refresh', []], ['setOpenaiKey', [null]], ['signout', []], ['protect', [false]], ['quit', []], ['shortcuts', [{}]], ['selectSource', ['screen:1:0']], ['popupState', [{}]]] as const)
+      results[name] = await ctrue[name](...args).then(() => 'allowed', (error: Error) => /Untrusted/.test(error.message) ? 'refused' : `failed: ${error.message}`);
+    return results;
+  });
+  expect(Object.values(refused).every(result => result === 'refused'), JSON.stringify(refused)).toBe(true);
+  // Its own functions still work.
+  await panel.evaluate(() => (window as unknown as { ctrue: { config(): Promise<unknown>; popupHide(): Promise<void> } }).ctrue.config());
+});
