@@ -16,7 +16,7 @@ export function Popup() {
   const [copied, setCopied] = useState(false);
   const [hint, setHint] = useState('');
   const [micKept, setMicKept] = useState(false);
-  const body = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null), current = useRef<HTMLElement>(null);
   useEffect(() => {
     let mac = true;
     void window.ctrue?.config().then(({ shortcuts, platform }) => { mac = platform !== 'win32' && platform !== 'linux'; setHint(hintFor(shortcuts, mac)); }).catch(() => {});
@@ -25,7 +25,9 @@ export function Popup() {
       else if (event.action === 'shortcuts') setHint(hintFor(event.payload as Record<string, string>, mac));
     });
   }, []);
-  useEffect(() => { if (!state.walk) body.current?.scrollTo({ top: body.current.scrollHeight }); }, [state.answer, state.heard, state.walk]);
+  // A new question starts at the top of the window, earlier answers above it and out of view (scroll up for them).
+  // Its answer streaming in never moves the view.
+  useEffect(() => { if (!state.walk && current.current) body.current?.scrollTo({ top: current.current.offsetTop }); }, [state.question, state.history.length, state.walk]);
   useEffect(() => { body.current?.scrollTo({ top: 0 }); }, [state.walk?.index]);
   useEffect(() => { if (!state.mic) setMicKept(false); }, [state.mic]);
   const walk = state.walk;
@@ -49,6 +51,7 @@ export function Popup() {
       {state.error && <p className="popup-error" role="alert">{state.error}</p>}
       {state.shots > 0 && <p className="popup-shots" role="status">{state.shots} screenshot{state.shots > 1 ? 's' : ''} ready. Scroll and add more, or press the screenshot shortcut to answer with all of them.</p>}
       {!walk && state.history.map((item, i) => <article className="popup-past" key={i}><p className="popup-question">{item.question}</p><div className="popup-answer markdown"><Markdown text={item.text} /></div></article>)}
+      <section className="popup-current" ref={current}>
       {walk ? <article className="popup-walk">
         <p className="popup-walk-meta">Step {walk.index + 1} of {walk.total}{walk.more ? ' · more coming…' : ''} · {walk.step.title}</p>
         <p className="popup-walk-say"><strong>Say:</strong> {walk.step.say}</p>
@@ -62,6 +65,7 @@ export function Popup() {
       {/* During a walkthrough the answer is a step explanation, shown above with its own step only. */}
       {walk ? null : state.answer ? <div className="popup-answer markdown"><Markdown text={state.answer} /></div> : !state.error && !state.heard && <p className="popup-empty">{state.status === 'listening' ? state.mic ? 'Listening to the call. The answer appears here when a question is asked.' : 'Only the other person is heard, not you, so leave this on for the whole call. Each question is answered here about 2 seconds after they finish asking.' : state.status === 'thinking' ? 'Working on it…' : 'Listen to the call or take a screenshot to get an answer here.'}</p>}
       {!walk && state.heard && <p className="popup-heard" aria-live="off"><span>Hearing…</span> {state.heard}</p>}
+      </section>
     </div>
     {walk && <nav className="popup-walk-nav" aria-label="Walkthrough steps"><button type="button" disabled={walk.index === 0} onClick={() => void window.ctrue?.popupStep(-1)}>← Prev</button><button type="button" disabled={walk.index >= walk.total - 1} onClick={() => void window.ctrue?.popupStep(1)}>Next →</button></nav>}
     <form className="popup-follow" onSubmit={ask}>

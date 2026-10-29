@@ -30,6 +30,25 @@ test('while listening, the pop-up says who is heard and that listening can stay 
   await show(page, { status: 'listening', mic: true });
   await expect(page.locator('.popup-status')).toHaveText('● Listening to you both');
 });
+test('a new question starts at the top of the pop-up; earlier answers are above it, out of view', async ({ page }) => {
+  await page.setViewportSize({ width: 460, height: 420 });
+  const body = page.locator('.popup-body');
+  const top = async (selector: string) => (await page.locator(selector).last().boundingBox())!.y - (await body.boundingBox())!.y;
+  await show(page, { status: 'listening', question: 'What is MongoDB?', answer: 'A document database.' });
+  // A short earlier answer still ends up fully out of view, even with a short new one.
+  await show(page, { status: 'thinking', question: 'What is Redis?', answer: 'An in-memory', history: [{ question: 'What is MongoDB?', text: 'A document database.' }] });
+  await expect.poll(() => top('.popup-current .popup-question')).toBeLessThan(16);
+  expect(await top('.popup-past')).toBeLessThan(0);
+  await expect(page.locator('.popup-past')).not.toBeInViewport();
+  // The answer streaming in does not move the view.
+  const scrolled = await body.evaluate(element => element.scrollTop);
+  await show(page, { status: 'thinking', question: 'What is Redis?', answer: 'An in-memory key-value store.\n\n' + 'It keeps data in memory for speed. '.repeat(40), history: [{ question: 'What is MongoDB?', text: 'A document database.' }] });
+  await page.waitForTimeout(200);
+  expect(await body.evaluate(element => element.scrollTop)).toBe(scrolled);
+  // Scrolling up shows the earlier answer.
+  await body.evaluate(element => element.scrollTo({ top: 0 }));
+  await expect(page.getByText('A document database.')).toBeInViewport();
+});
 test('keeps earlier answers above the current one and copies the current answer', async ({ page }) => {
   await show(page, { question: 'Second?', answer: 'Second answer', history: [{ question: 'First?', text: 'First answer' }] });
   const texts = await page.locator('.popup-answer').allTextContents();
