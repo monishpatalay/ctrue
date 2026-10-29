@@ -6,8 +6,8 @@ const hintFor = (shortcuts: Record<string, string>, mac: boolean) => { const key
 import './popup.css';
 
 // The pop-up only displays what the main window sends it and passes follow-up questions back.
-type PopupState = { status: 'ready' | 'connecting' | 'listening' | 'thinking'; question: string; answer: string; heard: string; error: string; shots: number; mic: boolean; history: { question: string; text: string }[]; walk: { step: WalkStep; index: number; total: number; more: boolean; explanation: string } | null };
-const initial: PopupState = { status: 'ready', question: '', answer: '', heard: '', error: '', shots: 0, mic: false, history: [], walk: null };
+type PopupState = { status: 'ready' | 'connecting' | 'listening' | 'thinking'; question: string; answer: string; heard: string; error: string; shots: number; mic: boolean; voice: number; history: { question: string; text: string }[]; walk: { step: WalkStep; index: number; total: number; more: boolean; explanation: string } | null };
+const initial: PopupState = { status: 'ready', question: '', answer: '', heard: '', error: '', shots: 0, mic: false, voice: 0, history: [], walk: null };
 const labels: Record<PopupState['status'], string> = { ready: 'Ready', connecting: 'Connecting…', listening: '● Listening', thinking: 'Thinking…' };
 
 export function Popup() {
@@ -40,7 +40,9 @@ export function Popup() {
   return <section className="popup" aria-label="Ctrue answer">
     <header className="popup-bar">
       {/* Says who is heard, so it is clear listening can stay on: without the microphone, Ctrue never hears the user. */}
-      <span className={`popup-status ${state.status}`}>{state.status === 'listening' ? `● Listening to ${state.mic ? 'you both' : 'them'}` : labels[state.status]}</span>
+      {/* While they talk (OpenAI heard speech start), bars follow their voice, so it is clear every word is being caught. */}
+      {state.voice > 0 ? <span className="popup-status hearing">● Hearing them<span className="popup-bars" aria-hidden="true">{[0.6, 1, 0.75, 0.9, 0.5].map((shape, i) => <span key={i} style={{ transform: `scaleY(${Math.max(0.15, shape * state.voice / 5)})` }} />)}</span></span>
+        : <span className={`popup-status ${state.status}`}>{state.status === 'listening' ? `● Listening to ${state.mic ? 'you both' : 'them'}` : labels[state.status]}</span>}
       <span className="popup-hint">{hint}</span>
       {state.answer && <button type="button" onClick={() => void navigator.clipboard.writeText(state.answer).then(() => setCopied(true)).catch(() => {})}>{copied ? 'Copied' : 'Copy'}</button>}
       {(state.answer || state.question || state.heard || state.shots > 0 || state.history.length > 0 || state.walk) && <button type="button" title="Clear this call's answers, transcript and screenshots" onClick={() => void window.ctrue?.popupClear()}>Clear</button>}

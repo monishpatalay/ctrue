@@ -444,6 +444,14 @@ test('the 1.8 s count from when the speaker stopped, not from when the text arri
   expect(askedAt[0] - sentAt[JSON.stringify(stop)]).toBeGreaterThanOrEqual(1_750);
   expect(askedAt[0] - sentAt[JSON.stringify(stop)]).toBeLessThan(2_200);
 });
+test('the pop-up shows the speaker is being heard from the moment they start until they stop', async ({ page }) => {
+  await answers(page);
+  await speech(page, [[300, { type: 'speaking' }], [2500, { type: 'quiet', id: 'q1', ago: 0 }]]);
+  await demo(page);
+  await emit(page, 'capture');
+  await expect.poll(async () => (await lastPopupState(page))?.voice, { timeout: 4_000 }).toBeGreaterThan(0);
+  await expect.poll(async () => (await lastPopupState(page))?.voice, { timeout: 4_000 }).toBe(0);
+});
 test('speech starting again during the 1.8 s keeps waiting, even when its text is slow', async ({ page }) => {
   const asked = await answers(page);
   await speech(page, [[100, { type: 'speaking' }], [500, { type: 'quiet', id: 'a', ago: 0 }], [900, said('What is the difference between a process', 'a')],

@@ -6,7 +6,10 @@ html.popup-root, html.popup-root body, html.popup-root #root { background: trans
 .popup-bar button:hover, .popup-follow button:hover:not(:disabled) { background: rgba(196, 239, 120, 0.22); }
 .popup-bar button:focus-visible, .popup-follow :focus-visible { outline: 2px solid var(--lime); outline-offset: 1px; }
 .popup-status { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
-.popup-status.listening, .popup-status.thinking { color: var(--lime); }
+.popup-status.listening, .popup-status.thinking, .popup-status.hearing { color: var(--lime); }
+.popup-status.hearing { display: inline-flex; align-items: center; gap: 6px; }
+.popup-bars { display: inline-flex; align-items: center; gap: 2px; height: 12px; }
+.popup-bars span { width: 3px; height: 12px; border-radius: 2px; background: var(--lime); transition: transform 180ms ease-out; }
 .popup-hint { flex: 1; font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
 .popup-body { flex: 1; overflow: auto; padding: 12px 14px; position: relative; }
 /* At least as tall as the window, so a new question can always scroll to the very top. */

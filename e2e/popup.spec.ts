@@ -30,6 +30,17 @@ test('while listening, the pop-up says who is heard and that listening can stay 
   await show(page, { status: 'listening', mic: true });
   await expect(page.locator('.popup-status')).toHaveText('● Listening to you both');
 });
+test('while they are talking, the top bar shows they are being heard, with bars that follow their voice', async ({ page }) => {
+  await show(page, { status: 'listening', voice: 3, question: 'What is MongoDB?', answer: 'A document database.' });
+  await expect(page.locator('.popup-status')).toHaveText('● Hearing them');
+  await expect(page.locator('.popup-bars span')).toHaveCount(5);
+  // Even while an answer is being written.
+  await show(page, { status: 'thinking', voice: 1 });
+  await expect(page.locator('.popup-status')).toHaveText('● Hearing them');
+  await show(page, { status: 'listening', voice: 0 });
+  await expect(page.locator('.popup-status')).toHaveText('● Listening to them');
+  await expect(page.locator('.popup-bars')).toHaveCount(0);
+});
 test('a new question starts at the top of the pop-up; earlier answers are above it, out of view', async ({ page }) => {
   await page.setViewportSize({ width: 460, height: 420 });
   const body = page.locator('.popup-body');

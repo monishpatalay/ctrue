@@ -469,10 +469,12 @@ export function App() {
     'mic-off': () => void run(async () => { const listening = captureStatus !== 'idle'; await stopCapture(); relisten.current = listening; setMic(false); }),
     'follow-up': text => { if (typeof text !== 'string') return; if (mode === 'walkthrough' && walking) setNotice('Ask once the walkthrough finishes, so it is not interrupted.'); else if (mode === 'walkthrough' && stepsRef.current.length) explainStep(text); else void generate(text); },
   };
+  // While someone is talking: 1-5 bars for their voice, at least 1 so it shows however quietly they speak; else 0.
+  const hearing = captureStatus === 'live' && voice.speaking ? Math.max(1, Math.min(5, Math.ceil(level * 50))) : 0;
   // The pop-up is a second window that only displays what this one knows.
   useEffect(() => {
-    void window.ctrue?.popupState({ status: generating ? 'thinking' : captureStatus === 'live' ? 'listening' : captureStatus === 'connecting' ? 'connecting' : 'ready', question: activeQuestion.current, answer, heard: transcript.slice(transcript.findIndex(t => t.id === answeredId.current) + 1).slice(-8).map(t => t.text.trim()).filter(Boolean).join(' '), error: mode === 'walkthrough' ? walkError || error : error, shots: shots.length, mic: mic && captureStatus !== 'idle', history: !generating && answers.at(-1)?.text === answer ? answers.slice(0, -1) : answers, walk: mode === 'walkthrough' && steps[stepIndex] ? { step: steps[stepIndex], index: stepIndex, total: steps.length, more: walking, explanation: explainedIndex === stepIndex ? answer : '' } : null }).catch(() => {});
-  }, [answer, answers, mic, generating, captureStatus, transcript, error, shots.length, mode, steps, stepIndex, walking, walkError, explainedIndex]);
+    void window.ctrue?.popupState({ voice: hearing, status: generating ? 'thinking' : captureStatus === 'live' ? 'listening' : captureStatus === 'connecting' ? 'connecting' : 'ready', question: activeQuestion.current, answer, heard: transcript.slice(transcript.findIndex(t => t.id === answeredId.current) + 1).slice(-8).map(t => t.text.trim()).filter(Boolean).join(' '), error: mode === 'walkthrough' ? walkError || error : error, shots: shots.length, mic: mic && captureStatus !== 'idle', history: !generating && answers.at(-1)?.text === answer ? answers.slice(0, -1) : answers, walk: mode === 'walkthrough' && steps[stepIndex] ? { step: steps[stepIndex], index: stepIndex, total: steps.length, more: walking, explanation: explainedIndex === stepIndex ? answer : '' } : null }).catch(() => {});
+  }, [answer, answers, mic, generating, captureStatus, transcript, error, shots.length, mode, steps, stepIndex, walking, walkError, explainedIndex, hearing]);
 
   // Shortcuts show as ⌘ symbols on macOS and as Ctrl key names on Windows.
   const mac = config.platform !== 'win32' && config.platform !== 'linux';
