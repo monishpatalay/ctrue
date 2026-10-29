@@ -538,3 +538,15 @@ test('hostile HTML in an answer is shown as text and never runs, in the window a
   expect(await popup.evaluate(() => (window as unknown as { __pwned?: number }).__pwned)).toBeUndefined();
   expect(await popup.locator('.popup-body img, .popup-body script, .popup-body iframe, .popup-body a, .popup-body svg').count()).toBe(0);
 });
+
+test('a long call with many long answers keeps the pop-up updating (REN-7)', async ({ page }) => {
+  const long = (question: string) => `Answer to: ${question}\n\n${'A detailed paragraph about the trade-offs involved. '.repeat(180)}`;
+  await answers(page, body => [['token', { text: long(body.question) }], ['done', {}]]);
+  await demo(page);
+  for (let i = 1; i <= 22; i++) {
+    await page.locator('#question').fill(`Question number ${i}?`);
+    await page.getByRole('button', { name: /Generate answer/ }).click();
+    await expect(page.locator('.answer-text')).toContainText(`Answer to: Question number ${i}?`);
+  }
+  await expect.poll(async () => String((await lastPopupState(page))?.answer).slice(0, 40), { timeout: 5_000 }).toContain('Question number 22?');
+});

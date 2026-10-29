@@ -51,10 +51,20 @@ What automated tests cannot reach: real capture, permissions, other apps' shortc
 29. **Self-update.** With 0.1.9 installed, publish 0.1.10. *Expect:* "Downloading…", then **Restart to update**. After the restart, it is version 0.1.10 and Screen Recording is still granted. A failed background check later must not replace **Restart to update** (REN-11).
 30. **Website sign-out while the API is down (WEB-3).** Sign out on the website with the network to the API blocked. *Expect:* you are signed out anyway.
 
+## 6. New in 0.1.17, and checks only you can do
+
+31. **Who is heard.** Press ⌘L with **Include microphone** off. *Expect:* the pop-up says "● Listening to them" and "leave this on for the whole call". Talk out loud yourself: nothing happens.
+32. **Hearing them.** Have someone ask a long question (or run `say "…"` in Terminal). *Expect:* within about a second the top bar reads "● Hearing them" with bars moving to their voice, until they stop; then their words appear and the answer starts about 2 s later.
+33. **New question at the top.** Ask a second question. *Expect:* it starts at the very top with the earlier answer out of view; scrolling up shows it; the view does not move while the answer is written.
+34. **Live website sign-in after the security update.** On ctrue.monishpatalay.dev, sign out, sign in with Google, open the dashboard, and **Connect desktop**. *Expect:* all work (the sign-in library's zod dependency was force-upgraded).
+35. **GitHub two-factor.** GitHub → Settings → Password and authentication. *Expect:* two-factor authentication is on. Windows updates trust whatever is in the GitHub release, so this account is what keeps them safe.
+36. **Neon Auth sign-up methods (SEC-2).** Neon console → your project → Auth → providers. *Record:* whether email/password sign-up is enabled; turn it off if you only want Google sign-in.
+37. **Windows (if you have a PC).** Install 0.1.17 from the website, sign in, Ctrl+L on a call. *Expect:* the same as items 31–33 with Ctrl labels.
+
 ## Results
 
 | # | macOS / app version | Pass, fail or note | Date |
 | --- | --- | --- | --- |
-| 1–30 | | | |
+| 1–37 | | | |
 
 macOS packaged builds include the microphone, screen and `NSAudioCaptureUsageDescription` entries. A terminal- or IDE-launched development build may lack the audio usage description, so validate the packaged app. Older macOS system-audio support differs; see [Electron's documented caveats](https://www.electronjs.org/docs/latest/api/desktop-capturer/).

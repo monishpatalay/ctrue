@@ -42,7 +42,7 @@ export async function installCtrue(page: Page, options: StubOptions = {}) {
       currentScreen: async () => ({ id: 'screen:1:0', name: 'Entire screen' }),
       selectSource: record('selectSource'), protect: record('protect'), recording: record('recording'),
       shortcuts: async (value: unknown) => { calls.push({ name: 'shortcuts', args: [value] }); return []; },
-      popupState: async (value: unknown) => { popupStates.push(value); if (JSON.stringify(value).length > 200000) throw fail('popup-state', 'Invalid pop-up state.'); },
+      popupState: async (value: unknown) => { if (JSON.stringify(value).length > 200000) throw fail('popup-state', 'Invalid pop-up state.'); popupStates.push(value); }, // only what main accepts reaches the pop-up
       popupStep: record('popupStep'), popupAsk: record('popupAsk'), popupHide: record('popupHide'), popupClear: record('popupClear'), popupMicOff: record('popupMicOff'),
       openaiKey: async () => openaiKey,
       setOpenaiKey: async (value: string | null) => {
