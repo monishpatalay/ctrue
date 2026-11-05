@@ -26,7 +26,7 @@ test.beforeAll(async () => {
   copyFileSync(join(desktop, 'build/tray.png'), join(root, 'build/tray.png'));
   writeFileSync(join(root, 'package.json'), JSON.stringify({ ...JSON.parse(readFileSync(join(desktop, 'package.json'), 'utf8')), main: 'dist-electron/main.cjs' }));
   // Like scripts/dev.mjs: no baked URLs, so CTRUE_API_URL is read at launch.
-  await bundle({ entryPoints: [join(desktop, 'electron/main.ts'), join(desktop, 'electron/preload.ts')], outdir: join(root, 'dist-electron'), platform: 'node', format: 'cjs', outExtension: { '.js': '.cjs' }, bundle: true, external: ['electron', 'electron-updater'], logLevel: 'error' });
+  await bundle({ entryPoints: [join(desktop, 'electron/main.ts'), join(desktop, 'electron/preload.ts')], outdir: join(root, 'dist-electron'), platform: 'node', format: 'cjs', outExtension: { '.js': '.cjs' }, bundle: true, external: ['electron', 'electron-updater', 'koffi'], logLevel: 'error' });
   process.env.VITE_API_URL = FAKE;
   await vite({ root: desktop, configFile: join(desktop, 'vite.config.ts'), logLevel: 'error', build: { outDir: join(root, 'dist'), emptyOutDir: true } });
   api = createServer(async (req, res) => {
