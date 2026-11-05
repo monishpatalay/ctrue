@@ -10,6 +10,24 @@ type PopupState = { status: 'ready' | 'connecting' | 'listening' | 'thinking'; q
 const initial: PopupState = { status: 'ready', question: '', answer: '', heard: '', error: '', shots: 0, mic: false, voice: 0, history: [], walk: null };
 const labels: Record<PopupState['status'], string> = { ready: 'Ready', connecting: 'Connecting…', listening: '● Listening', thinking: 'Thinking…' };
 
+// The window is not natively resizable (macOS would swap the pointer for resize arrows at its edges), so a drag that
+// starts within EDGE px of a side resizes it here instead. The top edge is the drag bar, which moves the window.
+const EDGE = 6;
+function resizeFromEdge(event: React.PointerEvent<HTMLElement>) {
+  const el = event.currentTarget, box = el.getBoundingClientRect();
+  const left = event.clientX - box.left < EDGE, right = box.right - event.clientX < EDGE, bottom = box.bottom - event.clientY < EDGE;
+  if (!left && !right && !bottom) return;
+  event.preventDefault();
+  el.setPointerCapture(event.pointerId);
+  const start = { sx: event.screenX, sy: event.screenY, x: window.screenX, y: window.screenY, w: window.outerWidth, h: window.outerHeight };
+  const move = (e: PointerEvent) => {
+    const width = Math.max(340, start.w + (right ? 1 : left ? -1 : 0) * (e.screenX - start.sx)), height = Math.max(300, start.h + (bottom ? e.screenY - start.sy : 0));
+    void window.ctrue?.popupResize({ x: left ? start.x + start.w - width : start.x, y: start.y, width, height });
+  };
+  el.addEventListener('pointermove', move);
+  el.addEventListener('pointerup', () => el.removeEventListener('pointermove', move), { once: true });
+}
+
 export function Popup() {
   const [state, setState] = useState(initial);
   const [followUp, setFollowUp] = useState('');
@@ -37,7 +55,7 @@ export function Popup() {
     if (!text) return;
     setFollowUp(''); void window.ctrue?.popupAsk(text);
   }
-  return <section className="popup" aria-label="Ctrue answer">
+  return <section className="popup" aria-label="Ctrue answer" onPointerDown={resizeFromEdge}>
     <header className="popup-bar">
       {/* Says who is heard, so it is clear listening can stay on: without the microphone, Ctrue never hears the user. */}
       {/* While they talk (OpenAI heard speech start), bars follow their voice, so it is clear every word is being caught. */}

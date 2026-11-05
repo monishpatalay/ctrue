@@ -8,4 +8,4 @@ if (env.CTRUE_SIGNED_RELEASE === 'true') for (const key of ['API_URL', 'WEBSITE_
   if (!value?.startsWith('https://')) throw new Error(`CTRUE_SIGNED_RELEASE=true needs an https CTRUE_${key}, not "${value || ''}".`);
 }
 const define = Object.fromEntries(keys.map(key => [`process.env.CTRUE_${key}`, JSON.stringify(env[`CTRUE_${key}`] || env[`VITE_${key}`] || '')]));
-await build({ entryPoints: ['electron/main.ts', 'electron/preload.ts'], outdir: 'dist-electron', platform: 'node', format: 'cjs', outExtension: { '.js': '.cjs' }, bundle: true, external: ['electron', 'electron-updater'], define });
+await build({ entryPoints: ['electron/main.ts', 'electron/preload.ts'], outdir: 'dist-electron', platform: 'node', format: 'cjs', outExtension: { '.js': '.cjs' }, bundle: true, external: ['electron', 'electron-updater', 'koffi'], define });

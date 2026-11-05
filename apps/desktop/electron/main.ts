@@ -2,6 +2,7 @@ import { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, M
 import { readFile, writeFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { autoUpdater } from 'electron-updater';
+import { keepArrowPointer } from './cursor';
 import { defaultShortcuts, isNewerVersion, parseHandoff, trustedService, validateShortcuts, type Action } from './security';
 
 const api = trustedService(process.env.CTRUE_API_URL || 'http://localhost:4318');
@@ -43,18 +44,27 @@ const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 const openaiKeyPath = () => path.join(app.getPath('userData'), 'openai-key.enc');
 function emit(action: string, payload?: unknown) { window?.webContents.send('ctrue:event', { action, payload }); }
 function restore() { if (window.isMinimized()) window.restore(); window.show(); window.focus(); }
-// The pop-up appears on the display under the pointer without taking focus, so typing continues underneath.
+// The pop-up appears where it was last dragged to, or the first time (or if that display is gone) at the top right of
+// the display under the pointer. It never takes focus, so typing continues underneath.
+let popupPosition: { x: number; y: number } | null = null;
 function showPopup() {
   if (popup.isVisible()) return;
-  const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
-  popup.setPosition(area.x + area.width - popup.getSize()[0] - 24, area.y + 24);
+  const [width, height] = popup.getSize();
+  const onScreen = popupPosition && screen.getAllDisplays().some(({ workArea: a }) => popupPosition!.x < a.x + a.width && popupPosition!.x + width > a.x && popupPosition!.y < a.y + a.height && popupPosition!.y + height > a.y);
+  if (onScreen) popup.setPosition(popupPosition!.x, popupPosition!.y);
+  else {
+    const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+    popup.setPosition(area.x + area.width - width - 24, area.y + 24);
+  }
+  // macOS can drop the level while the pop-up is hidden; set it again so it opens over full-screen apps too.
+  popup.setAlwaysOnTop(true, 'screen-saver');
   popup.showInactive();
 }
 // Only the top frame of Ctrue's own two windows, showing the app's own page (file:// when packaged, the dev server in
 // development). Navigation away is blocked, so that frame can only hold Ctrue's page. Comparing file paths instead
 // broke on Windows, where the same folder can be spelled differently (short names, drive-letter case).
 // The pop-up shows AI output, so it gets only the channels it needs: never the OpenAI key, sign-in tokens or quit.
-const POPUP_CHANNELS = new Set(['ctrue:config', 'ctrue:popup-ask', 'ctrue:popup-hide', 'ctrue:popup-clear', 'ctrue:popup-mic-off', 'ctrue:popup-step']);
+const POPUP_CHANNELS = new Set(['ctrue:config', 'ctrue:popup-ask', 'ctrue:popup-hide', 'ctrue:popup-clear', 'ctrue:popup-mic-off', 'ctrue:popup-step', 'ctrue:popup-resize']);
 function assertSender(event: Electron.IpcMainInvokeEvent, channel: string) {
   const frame = event.senderFrame, url = frame?.url;
   const own = [window, popup].some(target => target && event.sender === target.webContents && frame?.routingId === target.webContents.mainFrame.routingId && frame.processId === target.webContents.mainFrame.processId);
@@ -162,10 +172,14 @@ else {
     // from screen capture by the OS unless that is switched off in Preferences.
     // A macOS panel floats over other apps without activating this one. skipTransformProcessType keeps Ctrue a
     // normal Dock app; the default would turn the whole app into a background app with no Dock icon.
-    popup = new BrowserWindow({ width: 460, height: 560, minWidth: 340, minHeight: 300, type: 'panel', frame: false, transparent: true, hasShadow: false, show: false, alwaysOnTop: true, skipTaskbar: true, fullscreenable: false, webPreferences });
+    popup = new BrowserWindow({ width: 460, height: 560, minWidth: 340, minHeight: 300, resizable: false, type: 'panel', frame: false, transparent: true, hasShadow: false, show: false, alwaysOnTop: true, skipTaskbar: true, fullscreenable: false, webPreferences });
+    // 'screen-saver' sits above full-screen apps and meeting windows (Zoom, Teams), which cover the default 'floating' level.
+    popup.setAlwaysOnTop(true, 'screen-saver');
     popup.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
     for (const target of [window, popup]) target.setContentProtection(true);
     popup.on('close', event => { if (!quitting) { event.preventDefault(); popup.hide(); } });
+    popup.on('moved', () => { const [x, y] = popup.getPosition(); popupPosition = { x, y }; });
+    keepArrowPointer(popup);
     popup.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     popup.webContents.on('will-navigate', event => event.preventDefault());
     window.on('close', event => { if (!quitting) { event.preventDefault(); window.hide(); } });
@@ -232,6 +246,13 @@ else {
     ipc('ctrue:popup-hide', () => popup.hide());
     ipc('ctrue:popup-clear', () => emit('clear-context'));
     ipc('ctrue:popup-mic-off', () => emit('mic-off'));
+    // macOS edge resizing swaps the pointer for resize arrows, so the window is not resizable and the pop-up resizes
+    // itself from its edges through this.
+    ipc('ctrue:popup-resize', bounds => {
+      const { x, y, width, height } = (bounds ?? {}) as Record<string, unknown>;
+      if (![x, y, width, height].every(Number.isFinite)) throw new Error('Invalid pop-up size.');
+      popup.setBounds({ x: Math.round(x as number), y: Math.round(y as number), width: Math.max(340, Math.round(width as number)), height: Math.max(300, Math.round(height as number)) });
+    });
     ipc('ctrue:popup-step', delta => { if (delta !== 1 && delta !== -1) throw new Error('Invalid step move.'); emit(delta === 1 ? 'next' : 'previous'); });
     ipc('ctrue:shortcuts', async value => {
       const next = validateShortcuts(value); const failures = registerShortcuts(next);

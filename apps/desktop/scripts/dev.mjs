@@ -3,7 +3,7 @@ import { build } from 'esbuild';
 import { createServer, loadEnv } from 'vite';
 import electronPath from 'electron';
 const env = { ...loadEnv('development', process.cwd(), ''), ...process.env };
-await build({ entryPoints: ['electron/main.ts', 'electron/preload.ts'], outdir: 'dist-electron', platform: 'node', format: 'cjs', outExtension: { '.js': '.cjs' }, bundle: true, external: ['electron', 'electron-updater'] });
+await build({ entryPoints: ['electron/main.ts', 'electron/preload.ts'], outdir: 'dist-electron', platform: 'node', format: 'cjs', outExtension: { '.js': '.cjs' }, bundle: true, external: ['electron', 'electron-updater', 'koffi'] });
 const server = await createServer();
 await server.listen();
 const electron = spawn(electronPath, ['.'], { stdio: 'inherit', env: { ...env, CTRUE_API_URL: env.CTRUE_API_URL || env.VITE_API_URL, CTRUE_WEBSITE_URL: env.CTRUE_WEBSITE_URL || env.VITE_WEBSITE_URL, CTRUE_RENDERER_URL: 'http://127.0.0.1:5173' } });
