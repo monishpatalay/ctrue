@@ -78,7 +78,13 @@ test('a pressed key combination becomes a valid shortcut; lone keys and lone mod
   assert.equal(press('Enter', { altKey: true }), 'Alt+Enter');
   assert.equal(press('KeyK'), null);
   assert.equal(press('MetaLeft', { metaKey: true }), null);
-  assert.equal(press('ArrowUp', { metaKey: true }), null);
+  assert.equal(press('ArrowUp', { metaKey: true }), 'CommandOrControl+Up');
+  // On a Mac, Control stays Control so the move-pop-up keys can be recorded as they are.
+  assert.equal(acceleratorFrom({ metaKey: false, ctrlKey: true, altKey: true, shiftKey: false, code: 'ArrowLeft' }, true), 'Control+Alt+Left');
+  assert.equal(validateShortcuts({ ...defaultShortcuts, moveLeft: 'Control+Alt+Left' }).moveLeft, 'Control+Alt+Left');
+  assert.equal(prettyShortcut(defaultShortcuts.moveUp), '⌃ ⌥ ↑');
+  assert.equal(prettyShortcut(defaultShortcuts.moveUp, false), 'Ctrl+Alt+↑');
+  assert.throws(() => validateShortcuts({ ...defaultShortcuts, moveLeft: 'Shift+Left' }), /Invalid shortcut/);
   for (const made of [press('KeyK', { metaKey: true })!, press('F5', { shiftKey: true })!]) assert.equal(validateShortcuts({ ...defaultShortcuts, capture: made }).capture, made);
   assert.equal(prettyShortcut('CommandOrControl+Shift+Enter'), '⌘ ⇧ ↩');
   // Shift alone with a typing key would make that capital letter (or Shift+Enter) unusable in every app.

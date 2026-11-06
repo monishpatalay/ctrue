@@ -146,11 +146,22 @@ async function captureSources(options: Electron.SourcesOptions) {
 // Listing sources is slow when macOS renders a thumbnail of every window: ask for only the kind the ID names, without
 // pictures (this runs on every Cmd+L and Cmd+J).
 const sourcesFor = (id: string): Electron.SourcesOptions => ({ types: [id.startsWith('window:') ? 'window' : 'screen'], thumbnailSize: { width: 0, height: 0 } });
+// Keyboard nudging of the pop-up, kept inside the display it is on.
+// ponytail: stays on its current display; drag it with the mouse to move it to another one.
+const MOVE_STEP = 50;
+const MOVES: Partial<Record<Action, [number, number]>> = { moveLeft: [-MOVE_STEP, 0], moveRight: [MOVE_STEP, 0], moveUp: [0, -MOVE_STEP], moveDown: [0, MOVE_STEP] };
+function movePopup([dx, dy]: [number, number]) {
+  showPopup();
+  const bounds = popup.getBounds(), area = screen.getDisplayMatching(bounds).workArea;
+  const x = Math.min(Math.max(bounds.x + dx, area.x), area.x + area.width - bounds.width), y = Math.min(Math.max(bounds.y + dy, area.y), area.y + area.height - bounds.height);
+  popup.setPosition(x, y);
+  popupPosition = { x, y };
+}
 function registerShortcuts(next: typeof shortcuts) {
   globalShortcut.unregisterAll();
   const failures: string[] = [];
   for (const action of Object.keys(next) as Action[]) {
-    if (!globalShortcut.register(next[action], () => { if (action === 'hide') { if (popup.isVisible()) popup.hide(); else showPopup(); } else { showPopup(); emit(action); } })) failures.push(`${action}: ${next[action]}`);
+    if (!globalShortcut.register(next[action], () => { const move = MOVES[action]; if (move) movePopup(move); else if (action === 'hide') { if (popup.isVisible()) popup.hide(); else showPopup(); } else { showPopup(); emit(action); } })) failures.push(`${action}: ${next[action]}`);
   }
   shortcuts = next;
   return failures;

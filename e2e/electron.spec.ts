@@ -126,6 +126,10 @@ test('the main process refuses a Shift-only global shortcut', async () => {
   const result = await main.evaluate(() => (window as unknown as { ctrue: { shortcuts(v: unknown): Promise<string[]> } }).ctrue.shortcuts({ capture: 'Shift+K' }).then(() => 'saved', error => String(error)));
   expect(result).toContain('Invalid shortcut for capture');
 });
+test('the move-pop-up keys are registered from any app', async () => {
+  const keys = ['Control+Alt+Left', 'Control+Alt+Right', 'Control+Alt+Up', 'Control+Alt+Down'];
+  expect(await app.evaluate(({ globalShortcut }, keys) => keys.map(key => globalShortcut.isRegistered(key)), keys)).toEqual([true, true, true, true]);
+});
 
 test('a failed update check says so instead of claiming Ctrue is up to date (ELEC-17)', async () => {
   await app.evaluate(() => { globalThis.fetch = async () => new Response('', { status: 503 }); });

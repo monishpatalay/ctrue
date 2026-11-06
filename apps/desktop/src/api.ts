@@ -93,13 +93,14 @@ export function recentSpeech(transcript: Transcript[], now: number, windowMs: nu
   return transcript.filter(t => now - t.at <= windowMs).map(t => t.text.trim()).filter(Boolean).join(' ');
 }
 // Turns a key press into an Electron accelerator, or null until a real key is pressed together with a modifier.
-export function acceleratorFrom(event: { metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; code: string }): string | null {
-  const key = /^Key[A-Z]$/.test(event.code) ? event.code.slice(3) : /^Digit\d$/.test(event.code) ? event.code.slice(5) : /^(Enter|Space|F([1-9]|1\d|2[0-4]))$/.test(event.code) ? event.code : null;
-  const modifiers = [(event.metaKey || event.ctrlKey) && 'CommandOrControl', event.altKey && 'Alt', event.shiftKey && 'Shift'].filter(Boolean);
+export function acceleratorFrom(event: { metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; code: string }, mac = false): string | null {
+  const key = /^Key[A-Z]$/.test(event.code) ? event.code.slice(3) : /^Digit\d$/.test(event.code) ? event.code.slice(5) : /^Arrow(Up|Down|Left|Right)$/.test(event.code) ? event.code.slice(5) : /^(Enter|Space|F([1-9]|1\d|2[0-4]))$/.test(event.code) ? event.code : null;
+  // On a Mac, Control is its own key (the move-pop-up shortcuts use it); elsewhere Ctrl is CommandOrControl.
+  const modifiers = (mac ? [event.metaKey && 'CommandOrControl', event.ctrlKey && 'Control'] : [(event.metaKey || event.ctrlKey) && 'CommandOrControl']).concat([event.altKey && 'Alt', event.shiftKey && 'Shift']).filter(Boolean);
   // Shift alone only combines with an F-key; with a letter it would just type a capital everywhere.
   return key && modifiers.length && (modifiers.join() !== 'Shift' || key.startsWith('F')) ? [...modifiers, key].join('+') : null;
 }
-const KEY_SYMBOLS: Record<string, string> = { CommandOrControl: '⌘', Command: '⌘', Control: '⌃', Alt: '⌥', Option: '⌥', Shift: '⇧', Enter: '↩' };
-const KEY_NAMES: Record<string, string> = { CommandOrControl: 'Ctrl', Command: 'Ctrl', Control: 'Ctrl', Option: 'Alt', Super: 'Win' };
+const KEY_SYMBOLS: Record<string, string> = { CommandOrControl: '⌘', Command: '⌘', Control: '⌃', Alt: '⌥', Option: '⌥', Shift: '⇧', Enter: '↩', Left: '←', Right: '→', Up: '↑', Down: '↓' };
+const KEY_NAMES: Record<string, string> = { CommandOrControl: 'Ctrl', Command: 'Ctrl', Control: 'Ctrl', Option: 'Alt', Super: 'Win', Left: '←', Right: '→', Up: '↑', Down: '↓' };
 // macOS shows symbols (⌘ ⇧ J); Windows names the keys (Ctrl+Shift+J).
 export const prettyShortcut = (value: string, mac = true) => mac ? value.split('+').map(part => KEY_SYMBOLS[part] || part).join(' ') : value.split('+').map(part => KEY_NAMES[part] || part).join('+');
