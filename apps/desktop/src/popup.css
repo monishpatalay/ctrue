@@ -2,7 +2,7 @@
 html.popup-root, html.popup-root body, html.popup-root #root { background: transparent; height: 100%; margin: 0; overflow: hidden; }
 /* The pointer never changes over the pop-up: no hand on buttons, no I-beam on text, code or the input. */
 html.popup-root, html.popup-root * { cursor: default !important; }
-.popup { --glass: rgba(16, 19, 17, 0.5); height: 100%; box-sizing: border-box; display: flex; flex-direction: column; background: var(--glass); border: 1px solid rgba(196, 239, 120, 0.3); border-radius: 14px; color: #ecf0e9; overflow: hidden; font-size: 13px; }
+.popup { --glass: rgba(16, 19, 17, 0.72); height: 100%; box-sizing: border-box; display: flex; flex-direction: column; background: var(--glass); border: 1px solid rgba(196, 239, 120, 0.3); border-radius: 14px; color: #ecf0e9; overflow: hidden; font-size: 13px; }
 .popup-bar { display: flex; align-items: center; gap: 8px; padding: 9px 10px 9px 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); -webkit-app-region: drag; }
 .popup-bar button { -webkit-app-region: no-drag; background: rgba(255, 255, 255, 0.08); color: inherit; border: 0; border-radius: 7px; padding: 4px 9px; font: inherit; font-size: 11px; }
 .popup-bar button:hover, .popup-follow button:hover:not(:disabled) { background: rgba(196, 239, 120, 0.22); }
