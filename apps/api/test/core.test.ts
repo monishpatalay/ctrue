@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {deflateRawSync} from 'node:zlib';
-import {AudioBudget,DemoStore,Handoffs,StepScanner,docxSize,imageData,openaiKey,prompt,toWalkStep,uuid,walkPrompt} from '../src/core.js';
+import {AudioBudget,DemoStore,Handoffs,StepScanner,docxSize,imageData,openaiKey,prompt,toWalkStep,usage,MODELS,uuid,walkPrompt} from '../src/core.js';
 test('lease expiry caps disconnected charges; pause/resume/end are idempotent',()=>{
   let now=0;const store=new DemoStore(()=>now),first=store.action(null,'start');
   assert.equal(store.action(null,'start').id,first.id);
@@ -136,4 +136,14 @@ test('a spoken question is picked out of chatter and other languages, or answere
   const spoken=prompt('technical','',true),typed=prompt('technical','');
   assert.match(spoken,/small talk/);assert.match(spoken,/other languages/);assert.match(spoken,/exactly NO_QUESTION/);
   assert.doesNotMatch(typed,/NO_QUESTION/);
+});
+test('every mode treats projects as portfolio work and never invents customers or pricing',()=>{
+  for(const mode of ['technical','coding','behavioral','system-design'])assert.match(prompt(mode,'Built Lecture Copilot'),/portfolio projects, not companies or startups[\s\S]*Never invent customers[\s\S]*personal portfolio project I built to learn/);
+});
+test('usage counts tokens and prices cached input at the cached rate',()=>{
+  assert.deepEqual(usage('gpt-4.1-mini',1_000_000,500_000,1_000_000),{tokens:2_000_000,dollars:0.2+0.05+1.6});
+  assert.deepEqual(usage('unknown-model',10,0,5),{tokens:15,dollars:null});
+});
+test('every pickable model has a price, so the spending counter never shows a blank',()=>{
+  for(const model of MODELS)assert.notEqual(usage(model,1,0,1).dollars,null);
 });

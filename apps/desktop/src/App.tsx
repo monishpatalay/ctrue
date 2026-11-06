@@ -9,6 +9,8 @@ import { acceleratorFrom, formatTime, heardSince, isFiller, isNewProblem, pretty
 const defaultConfig: Config = { api: import.meta.env.VITE_API_URL || 'http://localhost:4318', website: import.meta.env.VITE_WEBSITE_URL || 'http://localhost:3000', platform: 'browser', packaged: false, secureStorage: false, updateEnabled: false, shortcuts: { capture: 'CommandOrControl+L', screenshot: 'CommandOrControl+J', collect: 'CommandOrControl+Shift+J', answer: 'CommandOrControl+Enter', hide: 'CommandOrControl+H', next: 'Alt+Shift+N', previous: 'Alt+Shift+B' } };
 type Answer = { question: string; text: string };
 type Mode = 'technical' | 'coding' | 'behavioral' | 'system-design' | 'walkthrough';
+// The answer models offered in Preferences (the API accepts only these); costs are rough, for a 20-question interview.
+const MODELS = [{ id: 'gpt-4.1-mini', label: 'Fast & cheap: GPT-4.1 mini (~$0.10 per interview)' }, { id: 'gpt-6.1-terra', label: 'Better answers: GPT-6.1 Terra (~$0.20 per interview, slower)' }, { id: 'gpt-6.1-sol', label: 'Smartest: GPT-6.1 Sol (~$0.40 per interview, slowest)' }];
 const stored = (key: string) => { try { return localStorage.getItem(key) || ''; } catch { return ''; } };
 const store = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* per-viewer convenience only */ } };
 const modes: { value: Mode; title: string; icon: string; detail: string }[] = [
@@ -61,6 +63,9 @@ export function App() {
   const [question, setQuestion] = useState('');
   const [mode, setMode] = useState<Mode>('technical');
   const [answers, setAnswers] = useState<Answer[]>([]);
+  // Tokens and dollars spent through Ctrue on this computer (answers and call transcription), kept across restarts.
+  const [spent, setSpent] = useState(() => { try { const saved = JSON.parse(stored('spent')); return { tokens: Number(saved.tokens) || 0, dollars: Number(saved.dollars) || 0 }; } catch { return { tokens: 0, dollars: 0 }; } });
+  const addSpend = (value: { [key: string]: unknown }) => setSpent(previous => { const next = { tokens: previous.tokens + (Number(value.tokens) || 0), dollars: previous.dollars + (Number(value.dollars) || 0) }; store('spent', JSON.stringify(next)); return next; });
   const [answer, setAnswer] = useState('');
   const [generating, setGenerating] = useState(false);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
@@ -80,6 +85,8 @@ export function App() {
   const [stepIndex, setStepIndex] = useState(0);
   const [topic, setTopic] = useState<Topic>(() => stored('ctrue.topic') === 'system-design' ? 'system-design' : 'coding');
   const [language, setLanguage] = useState(() => (LANGUAGES as readonly string[]).includes(stored('ctrue.language')) ? stored('ctrue.language') : 'Python');
+  // GPT-4.1 mini by default: in tests it began answering several times sooner than the GPT-6.1 models.
+  const [model, setModel] = useState(() => MODELS.some(m => m.id === stored('ctrue.model')) ? stored('ctrue.model') : 'gpt-4.1-mini');
   const [walking, setWalking] = useState(false);
   const [walkError, setWalkError] = useState('');
   const [explainedIndex, setExplainedIndex] = useState(-1);
@@ -279,7 +286,7 @@ export function App() {
           // Pausing clears the error banner, so report the capture failure after it, or it vanishes unseen.
           onError: value => { if (version !== captureVersion.current) return; void (async () => { await stopCapture(); if (sessionRef.current?.status === 'active') await controlSession('pause'); setError(value); })(); },
           onSpeech: (speaking, stoppedAt) => { if (version === captureVersion.current) setVoice(previous => speaking ? { ...previous, speaking } : { speaking, stoppedAt: stoppedAt ?? Date.now() }); },
-          onText: (type, id, text) => {
+          onUsage: addSpend, onText: (type, id, text) => {
             if (version === captureVersion.current) setTranscript(previous => updateTranscript(previous, type, id, text));
           }
         });
@@ -337,10 +344,11 @@ export function App() {
       const current = await ensureSession();
       if (controller.signal.aborted) return false;
       const ownKey = await window.ctrue?.openaiKey();
-      const response = await request('/answers', { method: 'POST', headers: ownKey ? { 'X-OpenAI-Key': ownKey } : undefined, body: JSON.stringify({ sessionId: current.id, question: prompt, mode: as, ...(spoken ? { spoken: true } : {}), ...(picture ? { images: pictures } : {}), context: [...answers.slice(-3).map(a => `Q: ${a.question}\nA: ${a.text}`), ...transcript.filter(t => t.final).slice(-8).map(t => t.text)].join('\n').slice(-16000) }), signal: controller.signal });
+      const response = await request('/answers', { method: 'POST', headers: ownKey ? { 'X-OpenAI-Key': ownKey } : undefined, body: JSON.stringify({ sessionId: current.id, question: prompt, mode: as, model, ...(spoken ? { spoken: true } : {}), ...(picture ? { images: pictures } : {}), context: [...answers.map(a => `Q: ${a.question}\nA: ${a.text}`), ...transcript.filter(t => t.final).slice(-8).map(t => t.text)].join('\n').slice(-100000) }), signal: controller.signal });
       let result = '', shown = !spoken;
       await readEvents(response, (event, value) => {
         if (authEpoch.current !== signIn || controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+        if (event === 'usage') { addSpend(value); return; }
         if (event !== 'token') return;
         result += value.text || '';
         // A spoken answer replaces the last one only once real words arrive, never for NO_QUESTION.
@@ -349,7 +357,7 @@ export function App() {
       });
       // No question in what was said: stay silent and keep the last answer.
       if (authEpoch.current !== signIn || !shown) return false;
-      setAnswers(previous => [...previous, { question: prompt, text: result }].slice(-10));
+      setAnswers(previous => [...previous, { question: prompt, text: result }]);
       setNotice('Answer ready. Check the details before using it.');
       return true;
     } catch (cause) { if (authEpoch.current === signIn) { if (!controller.signal.aborted) setError(message(cause)); else if (!spoken) setNotice('Generation cancelled.'); } }
@@ -376,9 +384,10 @@ export function App() {
       const current = await ensureSession();
       if (controller.signal.aborted) return false;
       const ownKey = await window.ctrue?.openaiKey();
-      const response = await request('/answers', { method: 'POST', headers: ownKey ? { 'X-OpenAI-Key': ownKey } : undefined, body: JSON.stringify({ sessionId: current.id, question: text, mode: 'walkthrough', topic: kind, language, ...(pictures.length ? { images: pictures } : {}), context: resumeContext(stepsRef.current) }), signal: controller.signal });
+      const response = await request('/answers', { method: 'POST', headers: ownKey ? { 'X-OpenAI-Key': ownKey } : undefined, body: JSON.stringify({ sessionId: current.id, question: text, model, mode: 'walkthrough', topic: kind, language, ...(pictures.length ? { images: pictures } : {}), context: resumeContext(stepsRef.current) }), signal: controller.signal });
       await readEvents(response, (event, value) => {
         if (authEpoch.current !== signIn || controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+        if (event === 'usage') { addSpend(value); return; }
         if (event === 'step') { stepsRef.current = [...stepsRef.current, value as unknown as WalkStep]; setSteps(stepsRef.current); }
       });
       if (authEpoch.current !== signIn) return false;
@@ -503,7 +512,7 @@ export function App() {
   }
 
   return <div className={`app-shell${nativeFrame ? ' native-frame' : ''}`}>
-    <header className="titlebar"><div className="brand"><span className="brand-icon">c</span>Ctrue<span className="version">DESKTOP</span></div><div className="titlebar-center"><span className={`status-dot ${session?.status === 'active' ? 'active' : ''}`} />{demo ? 'LOCAL DEMO' : session?.status === 'active' ? 'SESSION ACTIVE' : 'READY WHEN YOU ARE'}</div><button className="window-control" aria-label="Minimize window" onClick={() => void window.ctrue?.minimize()}>—</button><button className="window-control" aria-label="Maximize window" onClick={() => void window.ctrue?.maximize()}>▢</button><button className="window-control" aria-label="Quit Ctrue" onClick={() => void run(async () => { if (sessionRef.current?.status === 'active') await controlSession('end'); await window.ctrue?.quit(); })}>×</button></header>
+    <header className="titlebar"><div className="brand"><span className="brand-icon">c</span>Ctrue<span className="version">DESKTOP</span></div><div className="titlebar-center"><span className={`status-dot ${session?.status === 'active' ? 'active' : ''}`} />{demo ? 'LOCAL DEMO' : session?.status === 'active' ? 'SESSION ACTIVE' : 'READY WHEN YOU ARE'}</div><span className="titlebar-spend" title="Tokens and dollars spent through Ctrue on this computer (answers and call transcription), at OpenAI list prices">{spent.tokens.toLocaleString()} tokens · ${spent.dollars.toFixed(spent.dollars < 1 ? 3 : 2)}</span><button className="window-control" aria-label="Minimize window" onClick={() => void window.ctrue?.minimize()}>—</button><button className="window-control" aria-label="Maximize window" onClick={() => void window.ctrue?.maximize()}>▢</button><button className="window-control" aria-label="Quit Ctrue" onClick={() => void run(async () => { if (sessionRef.current?.status === 'active') await controlSession('end'); await window.ctrue?.quit(); })}>×</button></header>
     <div className="workspace">
       <aside className="sidebar"><div className="eyebrow sidebar-label">WORKSPACE</div><nav aria-label="Workspace navigation">{[{ id: 'session', label: 'Live assistant', icon: '◈' }, { id: 'profile', label: 'My profile', icon: '◉' }, { id: 'settings', label: 'Preferences', icon: '⚙' }].map(item => <button key={item.id} className={`nav-item ${tab === item.id ? 'selected' : ''}`} onClick={() => setTab(item.id as typeof tab)}><span>{item.icon}</span>{item.label}{item.id === 'session' && <span className="nav-dot" />}</button>)}</nav><div className="sidebar-bottom"><div className="credit-card"><div className="eyebrow">CTRUE</div><strong className="unlimited">Free</strong><span className="muted">{account?.plan === 'owner' ? 'Owner · uses the Ctrue key' : 'Open source · uses your own OpenAI key'}</span></div><div className="account-line"><span className="avatar">{token ? (account?.email?.[0] || '•').toUpperCase() : '?'}</span><div><strong>{demo ? 'Demo workspace' : account?.email?.split('@')[0] || (token ? 'Your workspace' : 'Guest workspace')}</strong><span>{demo ? 'Simulated · local only' : token ? 'Securely connected' : 'Connect your account'}</span></div></div></div></aside>
       <main>
@@ -514,7 +523,7 @@ export function App() {
           <div className="page-heading"><div><div className="eyebrow">THINK CLEARLY. BUILD CONFIDENTLY.</div><h1>Your second perspective<span>.</span></h1><p>Turn a question into your next clear step.</p></div><span className="session-clock"><span className="clock-icon">◷</span>{formatTime(session?.elapsedSeconds || 0)}</span></div>
           {window.ctrue && screenAccess !== 'granted' && <div className="connect-panel setup-panel"><div><strong>Allow screen and audio access</strong><p>Ctrue needs <b>Screen &amp; System Audio Recording</b> to read questions on your screen and hear the call. In System Settings, turn on <b>Ctrue</b> (if it is already on, turn it off and on again), then click <b>Restart Ctrue</b>. macOS applies the change only after a restart.</p></div><div className="button-row"><button className="primary" onClick={() => void run(() => window.ctrue!.requestPermission('screen'))}>Open System Settings</button><button className="secondary" onClick={() => void window.ctrue!.relaunch()}>Restart Ctrue</button></div></div>}{needsKey && <div className="connect-panel key-panel"><div><strong>Add your OpenAI API key</strong><p>Ctrue uses your own OpenAI account for transcription and answers. The key is encrypted on this computer and never saved on our servers. Create one at platform.openai.com/api-keys.</p></div>{keyForm()}</div>}{!token && <div className="connect-panel"><div><strong>Connect your Ctrue account</strong><p>One workspace for your assistant, profile, and credits.</p></div><div className="button-row"><button className="primary" onClick={() => window.ctrue ? void window.ctrue.openLogin() : window.open(`${config.website}/login?desktop=1`, '_blank', 'noopener')}>Sign in ↗</button>{['localhost', '127.0.0.1', '[::1]'].includes(new URL(config.api).hostname) && <button className="secondary" onClick={() => void run(enableDemo)}>Try local demo</button>}</div></div>}
           <div className="session-toolbar"><div className="button-row">{!session || session.status === 'ended' ? <button className="primary" disabled={busy || !token} onClick={() => void controlSession('start')}><span>▷</span> Start session</button> : <><button className="secondary" disabled={busy} onClick={() => void controlSession(session.status === 'active' ? 'pause' : 'resume')}>{session.status === 'active' ? 'Ⅱ Pause' : '▷ Resume'}</button><button className="ghost" disabled={busy} onClick={() => void controlSession('end')}>End session</button></>}<span className="session-hint">{session?.status === 'active' ? account?.plan === 'owner' ? 'Unlimited time' : account?.metered === false ? 'Free · uses your OpenAI key' : `${formatTime(session.remainingSeconds)} available` : 'You control when your session runs'}</span></div><span className="secure-caption">◇ On-device context</span></div>
-          <div className="mode-grid" role="group" aria-label="Answer mode">{modes.map(item => <button className={`mode-card ${mode === item.value ? 'active' : ''}`} key={item.value} onClick={() => setMode(item.value)}><span className="mode-icon">{item.icon}</span><strong>{item.title}</strong><span>{item.detail}</span>{mode === item.value && <span className="mode-check">✓</span>}</button>)}</div>
+          <div className="mode-grid" role="group" aria-label="Answer mode">{modes.map(item => <button className={`mode-card ${mode === item.value ? 'active' : ''}`} key={item.value} onClick={() => setMode(item.value)}><span className="mode-icon">{item.icon}</span><strong>{item.title}</strong><span>{item.detail}</span>{mode === item.value && <span className="mode-check">✓</span>}</button>)}</div><label className="model-row" title="Used for answers and walkthroughs. Listening to the call always uses gpt-4o-mini-transcribe. Costs are rough, for a 20-question interview."><span className="eyebrow">AI MODEL</span><select className="model-select" aria-label="AI model" value={model} onChange={e => { setModel(e.target.value); store('ctrue.model', e.target.value); }}>{MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}</select></label>
           <div className="assistant-grid"><section className="panel input-panel"><div className="panel-title"><h2><span>◌</span> Context</h2><span className={`pill ${captureStatus === 'live' ? 'live' : ''}`}>{captureStatus === 'live' ? '● Listening' : captureStatus === 'connecting' ? 'Connecting…' : 'Ready'}</span></div><div className="capture-controls"><button className="secondary" disabled={!token || captureStatus === 'connecting'} onClick={() => void run(async () => { await chooseSource('audio'); })}>{captureStatus === 'live' ? '■ Stop capture' : '◉ Capture audio'}<kbd>{prettyShortcut(config.shortcuts.capture, mac)}</kbd></button><button className="icon-button" aria-label="Capture screen question" title="Screenshot the current screen" onClick={() => void run(async () => { const shot = await chooseSource('screenshot'); if (shot) { setImage(shot); setNotice('Screenshot of the current screen attached.'); } })}>▣</button></div><div className="mic-row"><label><input type="checkbox" checked={mic} disabled={captureStatus !== 'idle'} onChange={e => { setMic(e.target.checked); if (e.target.checked) void window.ctrue?.requestPermission('microphone'); }} /> Include microphone</label><select aria-label="Microphone device" disabled={!mic || captureStatus !== 'idle'} value={micId} onChange={e => setMicId(e.target.value)}><option value="">Default input</option>{devices.map((d, i) => <option key={d.deviceId || i} value={d.deviceId}>{d.label || `Microphone ${i + 1}`}</option>)}</select></div>{captureStatus !== 'idle' && <div className="audio-meter" aria-label={`Audio input level ${Math.round(Math.min(1, level * 5) * 100)} percent`}><div style={{ width: `${Math.min(100, level * 500)}%` }} /></div>}
             <div className="transcript" aria-label="Live transcript">{transcript.length ? transcript.map(t => <button className={t.final ? 'transcript-final' : 'transcript-partial'} key={t.id} title="Use this as your question" onClick={() => setQuestion(t.text)}><span>{t.final ? '✓' : '…'}</span>{t.text}</button>) : <div className="empty-transcript"><span className="waveform">▂ ▅ ▃ ▆ ▄ ▂</span><strong>Bring the conversation in</strong><p>Capture call audio, add a screenshot,<br />or type your question below.</p></div>}</div>
             <label className="eyebrow question-label" htmlFor="question">YOUR QUESTION</label><textarea id="question" value={question} onChange={e => setQuestion(e.target.value)} placeholder={mode === 'behavioral' ? 'Tell me about a challenge you overcame…' : 'What would you like to work through?'} maxLength={12000} />

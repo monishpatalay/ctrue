@@ -10,7 +10,7 @@ import { createRemoteJWKSet, errors, jwtVerify } from 'jose';
 import OpenAI from 'openai';
 import pdf from 'pdf-parse/lib/pdf-parse.js';
 import mammoth from 'mammoth';
-import { AudioBudget, DemoStore, Handoffs, HttpError, LANGUAGES, StepScanner, WALK_SCHEMA, docxSize, imageData, openaiKey, prompt, sha256, string, toWalkStep, uuid, walkPrompt, type Session } from './core.js';
+import { AudioBudget, DemoStore, Handoffs, HttpError, LANGUAGES, StepScanner, WALK_SCHEMA, MODELS, usage, docxSize, imageData, openaiKey, prompt, sha256, string, toWalkStep, uuid, walkPrompt, type Session } from './core.js';
 
 // apps/api/.env wins; the repo-root .env.local is where `neon deploy` and `neon env pull` write DATABASE_URL.
 dotenv.config({path:['.env','../../.env.local'],quiet:true});
@@ -110,6 +110,7 @@ function providerError(e:unknown) {
   const status=typeof e==='object'&&e!==null&&'status' in e?e.status:undefined;
   if(status===401)return new HttpError(402,'Your OpenAI API key was rejected. Check it in Preferences');
   if(status===429)return new HttpError(429,'Your OpenAI account hit its rate limit or has no credit left');
+  if(status===404||(e instanceof OpenAI.APIError&&e.code==='model_not_found'))return new HttpError(400,"Your OpenAI account can't use this AI model yet. Choose another in Preferences");
   if(e instanceof OpenAI.APIError)return new HttpError(502,`OpenAI error: ${redact(e.message)}`);
   return e;
 }
@@ -182,13 +183,14 @@ app.post('/answers',async(req,res,next)=>{
   try {
     rate(`answers:${u.id}`,12);const id=uuid(req.body.sessionId),question=string(req.body.question,'question',16000),mode=string(req.body.mode,'mode',20);
     if(!['technical','coding','behavioral','system-design','walkthrough'].includes(mode))throw new HttpError(400,'Invalid answer mode');
+    const chosen=req.body.model===undefined?undefined:string(req.body.model,'model',40);if(chosen!==undefined&&!MODELS.includes(chosen))throw new HttpError(400,'Unknown AI model');
     const spoken=req.body.spoken===true,walk=mode==='walkthrough',topic=req.body.topic==='system-design'?'system-design':'coding',language=walk&&topic==='coding'?string(req.body.language,'language',20):'';
     if(walk&&topic==='coding'&&!(LANGUAGES as readonly string[]).includes(language))throw new HttpError(400,'Unsupported language');
     // One screenshot (image) or several consecutive parts of the same page (images), at most four.
     const supplied:unknown[]=Array.isArray(req.body.images)?req.body.images:req.body.image===undefined?[]:[req.body.image];
     if(supplied.length>4)throw new HttpError(400,'At most four screenshots per question');
     const pictures=supplied.map((value:unknown)=>imageData(value)).filter((value:string|undefined):value is string=>!!value),context=req.body.context===undefined?'':req.body.context;
-    if(typeof context!=='string'||context.length>30000)throw new HttpError(400,'Invalid context');
+    if(typeof context!=='string'||context.length>120000)throw new HttpError(400,'Invalid context');
     await active(u.id,id);if(answering.has(u.id))throw new HttpError(409,'Cancel the current answer first');
     answering.add(u.id);ownsAnswer=true;
     const key=await aiKey(u.id,req.headers['x-openai-key']);
@@ -205,9 +207,10 @@ app.post('/answers',async(req,res,next)=>{
     else if(demo)send('token',{text:`[DEMO — no AI request made] Practice ${mode} response. Question: ${question.slice(0,250)}. ${mode==='behavioral'?'Use your verified facts to describe Situation, Task, Action, and Result.':'Explain your approach, then cover tradeoffs and edge cases.'}`});
     else {
       const scanner=new StepScanner();
-      const stream=await new OpenAI({apiKey:key}).responses.create({model:env.OPENAI_MODEL||'gpt-4.1-mini',instructions:walk?walkPrompt(topic,language):prompt(mode,facts,spoken),...(walk?{text:{format:{type:'json_schema' as const,name:'walkthrough',schema:WALK_SCHEMA,strict:true}}}:{}),input:[{role:'user',content:[{type:'input_text',text:`Recent context:\n${context}\n${spoken?`Transcript of what was just said on the call (not necessarily a question):\n${question}\n\nIf nothing in this transcript asks the user a question or makes a request of them, reply with exactly NO_QUESTION and nothing else.`:`Question:\n${question}`}${pictures.length>1?`\n\nThe ${pictures.length} screenshots are consecutive parts of the same page, in order; read them together.`:''}\n\nReply in English only, even if the text above is in another language.`},...pictures.map(url=>({type:'input_image' as const,image_url:url,detail:'auto' as const}))]}],stream:true,max_output_tokens:walk?8000:2500,store:false},{signal:abort.signal});
+      const model=chosen||env.OPENAI_MODEL||'gpt-4.1-mini';
+      const stream=await new OpenAI({apiKey:key}).responses.create({model:model,instructions:walk?walkPrompt(topic,language):prompt(mode,facts,spoken),...(walk?{text:{format:{type:'json_schema' as const,name:'walkthrough',schema:WALK_SCHEMA,strict:true}}}:{}),input:[{role:'user',content:[{type:'input_text',text:`Recent context:\n${context}\n${spoken?`Transcript of what was just said on the call (not necessarily a question):\n${question}\n\nIf nothing in this transcript asks the user a question or makes a request of them, reply with exactly NO_QUESTION and nothing else.`:`Question:\n${question}`}${pictures.length>1?`\n\nThe ${pictures.length} screenshots are consecutive parts of the same page, in order; read them together.`:''}\n\nReply in English only, even if the text above is in another language.`},...pictures.map(url=>({type:'input_image' as const,image_url:url,detail:'auto' as const}))]}],stream:true,max_output_tokens:walk?8000:2500,store:false},{signal:abort.signal});
       let completed=false;
-      for await(const event of stream){if(event.type==='response.output_text.delta'){if(!walk)send('token',{text:event.delta});else for(const found of scanner.push(event.delta)){const step=toWalkStep(found);if(!step)throw new HttpError(502,'The AI returned a malformed step. Completed steps are kept; press Retry to continue.');send('step',step);}}else if(event.type==='response.completed')completed=true;
+      for await(const event of stream){if(event.type==='response.output_text.delta'){if(!walk)send('token',{text:event.delta});else for(const found of scanner.push(event.delta)){const step=toWalkStep(found);if(!step)throw new HttpError(502,'The AI returned a malformed step. Completed steps are kept; press Retry to continue.');send('step',step);}}else if(event.type==='response.completed'){completed=true;const u=event.response.usage;if(u)send('usage',usage(model,u.input_tokens,u.input_tokens_details?.cached_tokens,u.output_tokens));}
         // A length cut-off keeps what was written; anything else is reported with OpenAI's own reason.
         else if(event.type==='response.incomplete'){const why=event.response.incomplete_details?.reason;if(why!=='max_output_tokens')throw new HttpError(502,`The AI stopped early (${why||'no reason given'})`);if(walk)throw new HttpError(502,'The walkthrough hit the length limit. Completed steps are kept; press Retry to continue.');send('token',{text:'\n\n_(Answer cut off at the length limit. Ask a follow-up to continue.)_'});completed=true;}
         else if(event.type==='response.failed')throw new HttpError(502,`The AI request failed: ${event.response.error?.message||'no reason given'}`);
@@ -256,7 +259,7 @@ wss.on('connection',(socket,req)=>{
         // OpenAI decides when a turn ends (server_vad): quiet or noisy calls are heard, and silence is never transcribed.
         // gpt-live-transcribe refuses turn detection; gpt-4o-mini-transcribe measured best (npm run test:hearing).
         provider.on('open',()=>provider?.send(JSON.stringify({type:'session.update',session:{type:'transcription',audio:{input:{format:{type:'audio/pcm',rate:24000},transcription:{model:'gpt-4o-mini-transcribe'},turn_detection:{type:'server_vad',silence_duration_ms:silenceMs,prefix_padding_ms:300},noise_reduction:{type:'far_field'}}}}})));
-        provider.on('message',raw=>{try{const e=JSON.parse(raw.toString());if(e.type==='session.updated'){ready=true;send({type:'ready'});}else if(e.type==='input_audio_buffer.speech_started')send({type:'speaking'});else if(e.type==='input_audio_buffer.speech_stopped')send({type:'quiet',id:e.item_id,ago:Math.max(0,heardMs-Number(e.audio_end_ms??heardMs)+silenceMs)});else if(e.type==='conversation.item.input_audio_transcription.delta')send({type:'partial',id:e.item_id,text:e.delta});else if(e.type==='conversation.item.input_audio_transcription.completed')send({type:'final',id:e.item_id,text:e.transcript});else if(e.type==='error'&&e.error?.code==='invalid_api_key')fail('Your OpenAI API key was rejected. Check it in Preferences');else if(e.type==='error'||e.type==='conversation.item.input_audio_transcription.failed')fail('Transcription provider failed');}catch{fail('Invalid provider response');}});
+        provider.on('message',raw=>{try{const e=JSON.parse(raw.toString());if(e.type==='session.updated'){ready=true;send({type:'ready'});}else if(e.type==='input_audio_buffer.speech_started')send({type:'speaking'});else if(e.type==='input_audio_buffer.speech_stopped')send({type:'quiet',id:e.item_id,ago:Math.max(0,heardMs-Number(e.audio_end_ms??heardMs)+silenceMs)});else if(e.type==='conversation.item.input_audio_transcription.delta')send({type:'partial',id:e.item_id,text:e.delta});else if(e.type==='conversation.item.input_audio_transcription.completed')send({type:'final',id:e.item_id,text:e.transcript,...(e.usage?{usage:usage('gpt-4o-mini-transcribe',e.usage.input_tokens,0,e.usage.output_tokens)}:{})});else if(e.type==='error'&&e.error?.code==='invalid_api_key')fail('Your OpenAI API key was rejected. Check it in Preferences');else if(e.type==='error'||e.type==='conversation.item.input_audio_transcription.failed')fail('Transcription provider failed');}catch{fail('Invalid provider response');}});
         provider.on('error',()=>fail('Could not connect to transcription provider'));provider.on('close',()=>{if(socket.readyState===WebSocket.OPEN)fail('Transcription connection closed');});
       }else{
         if(message.type!=='audio'||!ready)throw new HttpError(400,'Wait for ready before sending PCM audio');

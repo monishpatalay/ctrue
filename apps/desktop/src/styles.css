@@ -50,3 +50,6 @@ html,body,#root{height:100%}
 .walk-error .secondary{flex:0 0 auto}
 .walk-nav{gap:8px}
 .walk-nav .secondary,.walk-nav .primary{flex:0 0 auto}
+.titlebar-spend{margin-left:auto;font-size:11px;color:#8c9b8e;font-variant-numeric:tabular-nums;white-space:nowrap}
+.model-select{width:100%;margin:6px 0 14px;padding:9px 10px;background:#0f130f;color:inherit;border:1px solid var(--line);border-radius:8px}
+.model-row{display:flex;align-items:center;gap:12px;margin:-10px 0 22px}.model-row .model-select{flex:1;max-width:440px;margin:0}
