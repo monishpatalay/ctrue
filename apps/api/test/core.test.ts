@@ -140,6 +140,9 @@ test('a spoken question is picked out of chatter and other languages, or answere
 test('every mode treats projects as portfolio work and never invents customers or pricing',()=>{
   for(const mode of ['technical','coding','behavioral','system-design'])assert.match(prompt(mode,'Built Lecture Copilot'),/portfolio projects, not companies or startups[\s\S]*Never invent customers[\s\S]*personal portfolio project I built to learn/);
 });
+test('spoken answers stay conversational and only run long when asked to elaborate',()=>{
+  for(const mode of ['technical','behavioral']){const p=prompt(mode,'');assert.match(p,/80 to 150 words/);assert.match(p,/Only when the person asks the user to elaborate/);assert.doesNotMatch(p,/So basically,/);}
+});
 test('usage counts tokens and prices cached input at the cached rate',()=>{
   assert.deepEqual(usage('gpt-4.1-mini',1_000_000,500_000,1_000_000),{tokens:2_000_000,dollars:0.2+0.05+1.6});
   assert.deepEqual(usage('unknown-model',10,0,5),{tokens:15,dollars:null});

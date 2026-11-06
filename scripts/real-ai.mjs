@@ -63,6 +63,12 @@ export async function realAI({ databaseUrl, authBase, token }) {
     };
     const technical = await ask('Technical', { question: 'What is the difference between a process and a thread?', mode: 'technical' });
     assert.match(technical.text, /thread/i);
+    // Normal answers stay around 30-60 seconds spoken; asking to elaborate makes them longer.
+    const wordCount = text => text.split(/\s+/).filter(Boolean).length;
+    assert(wordCount(technical.text) <= 200, `normal answer ran ${wordCount(technical.text)} words`);
+    const deeper = await ask('Asked to elaborate', { question: 'Can you elaborate more on that and go deeper into how threads share memory?', mode: 'technical', context: `Q: What is the difference between a process and a thread?\nA: ${technical.text}` });
+    assert(wordCount(deeper.text) > wordCount(technical.text), 'elaborating did not make the answer longer');
+    console.log(`    normal ${wordCount(technical.text)} words, elaborated ${wordCount(deeper.text)} words`);
     const coding = await ask('Coding from a screenshot', { question: 'Read and solve the problem in this screenshot.', mode: 'coding', images: [await screenshot('<b>Two Sum.</b> Given an array of integers <code>nums</code> and an integer <code>target</code>, return the indices of the two numbers that add up to <code>target</code>.')] });
     assert.match(coding.text, /hash|dict|map/i);
     const behavioral = await ask('Behavioral, grounded in saved facts', { question: 'Tell me about a project you are proud of.', mode: 'behavioral' });
@@ -88,6 +94,8 @@ export async function realAI({ databaseUrl, authBase, token }) {
       const chatter = await ask(title, { question: words, mode: 'technical', spoken: true });
       assert.equal(chatter.text.trim(), 'NO_QUESTION', `${title}: ${chatter.text.slice(0, 120)}`);
     }
+    // The API allows 12 answers a minute per user and this run asks more, so let the minute pass first.
+    await new Promise(resolve => setTimeout(resolve, 60_000));
     const walk = await ask('Walkthrough (Python)', { question: 'Two sum: return indices of the two numbers in nums that add up to target.', mode: 'walkthrough', topic: 'coding', language: 'Python' });
     assert(walk.steps.length >= 3 && walk.steps.some(step => step.kind === 'final' && step.code), `walkthrough had ${walk.steps.length} steps and no final code`);
 
