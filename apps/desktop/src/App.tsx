@@ -63,6 +63,7 @@ export function App() {
   const [question, setQuestion] = useState('');
   const [mode, setMode] = useState<Mode>('technical');
   const [answers, setAnswers] = useState<Answer[]>([]);
+  // The AI gets every answer from the call; the pop-up shows only the last 10, so its state stays under the 200 KB IPC limit.
   // Tokens and dollars spent through Ctrue on this computer (answers and call transcription), kept across restarts.
   const [spent, setSpent] = useState(() => { try { const saved = JSON.parse(stored('spent')); return { tokens: Number(saved.tokens) || 0, dollars: Number(saved.dollars) || 0 }; } catch { return { tokens: 0, dollars: 0 }; } });
   const addSpend = (value: { [key: string]: unknown }) => setSpent(previous => { const next = { tokens: previous.tokens + (Number(value.tokens) || 0), dollars: previous.dollars + (Number(value.dollars) || 0) }; store('spent', JSON.stringify(next)); return next; });
@@ -482,7 +483,7 @@ export function App() {
   const hearing = captureStatus === 'live' && voice.speaking ? Math.max(1, Math.min(5, Math.ceil(level * 50))) : 0;
   // The pop-up is a second window that only displays what this one knows.
   useEffect(() => {
-    void window.ctrue?.popupState({ voice: hearing, status: generating ? 'thinking' : captureStatus === 'live' ? 'listening' : captureStatus === 'connecting' ? 'connecting' : 'ready', question: activeQuestion.current, answer, heard: transcript.slice(transcript.findIndex(t => t.id === answeredId.current) + 1).slice(-8).map(t => t.text.trim()).filter(Boolean).join(' '), error: mode === 'walkthrough' ? walkError || error : error, shots: shots.length, mic: mic && captureStatus !== 'idle', history: !generating && answers.at(-1)?.text === answer ? answers.slice(0, -1) : answers, walk: mode === 'walkthrough' && steps[stepIndex] ? { step: steps[stepIndex], index: stepIndex, total: steps.length, more: walking, explanation: explainedIndex === stepIndex ? answer : '' } : null }).catch(() => {});
+    void window.ctrue?.popupState({ voice: hearing, status: generating ? 'thinking' : captureStatus === 'live' ? 'listening' : captureStatus === 'connecting' ? 'connecting' : 'ready', question: activeQuestion.current, answer, heard: transcript.slice(transcript.findIndex(t => t.id === answeredId.current) + 1).slice(-8).map(t => t.text.trim()).filter(Boolean).join(' '), error: mode === 'walkthrough' ? walkError || error : error, shots: shots.length, mic: mic && captureStatus !== 'idle', history: !generating && answers.at(-1)?.text === answer ? answers.slice(-11, -1) : answers.slice(-10), walk: mode === 'walkthrough' && steps[stepIndex] ? { step: steps[stepIndex], index: stepIndex, total: steps.length, more: walking, explanation: explainedIndex === stepIndex ? answer : '' } : null }).catch(() => {});
   }, [answer, answers, mic, generating, captureStatus, transcript, error, shots.length, mode, steps, stepIndex, walking, walkError, explainedIndex, hearing]);
 
   // Shortcuts show as ⌘ symbols on macOS and as Ctrl key names on Windows.
